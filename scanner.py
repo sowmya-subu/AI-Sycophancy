@@ -3,12 +3,14 @@ Free AI Sycophancy Incident Scanner (2023-Present)
 Uses RSS feeds, arXiv, and Hacker News for historical coverage
 
 # Install dependencies
-pip install requests pandas
+pip install -r requirements.txt
 # Full scan (2023-present) - includes historical data
 python scanner.py
 
 # Custom output filename
 python scanner.py --output my_complete_scan.csv
+# Save console output to log file
+python scanner.py --log scan_output.txt
 # Adjust RSS lookback period
 python scanner.py --rss-days 180
 
@@ -17,13 +19,103 @@ python scanner.py --rss-days 180
 import feedparser
 import pandas as pd
 from datetime import datetime, timedelta
-from typing import List, Dict
+from typing import List, Dict, Optional
 import time
 from urllib.parse import quote
 import requests
 from bs4 import BeautifulSoup
 import json
 import os
+import sys
+import re
+import arxiv
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
+
+# Try to import sentence transformers for semantic embeddings
+try:
+    from sentence_transformers import SentenceTransformer
+    EMBEDDINGS_AVAILABLE = True
+except ImportError:
+    EMBEDDINGS_AVAILABLE = False
+
+# Article extraction libraries
+try:
+    from newspaper import Article
+    NEWSPAPER_AVAILABLE = True
+except ImportError:
+    NEWSPAPER_AVAILABLE = False
+    print("⚠️  Warning: newspaper3k not installed. Install with: pip install newspaper3k")
+
+# NLTK setup - MUST download data before importing sumy
+try:
+    import nltk
+    NLTK_AVAILABLE = True
+    
+    print("Checking NLTK data...")
+    
+    # Download required NLTK data (punkt tokenizer)
+    punkt_downloaded = False
+    try:
+        nltk.data.find('tokenizers/punkt')
+        print("  ✓ punkt tokenizer found")
+        punkt_downloaded = True
+    except LookupError:
+        print("  Downloading NLTK punkt tokenizer (one-time setup)...")
+        try:
+            nltk.download('punkt', quiet=False)
+            punkt_downloaded = True
+            print("  ✓ punkt downloaded successfully")
+        except Exception as e:
+            print(f"  ✗ Failed to download punkt: {e}")
+    
+    # Also download punkt_tab for newer NLTK versions
+    try:
+        nltk.data.find('tokenizers/punkt_tab')
+        print("  ✓ punkt_tab found")
+    except LookupError:
+        try:
+            print("  Downloading punkt_tab for newer NLTK...")
+            nltk.download('punkt_tab', quiet=False)
+            print("  ✓ punkt_tab downloaded successfully")
+        except Exception as e:
+            # punkt_tab may not exist in older versions, that's okay
+            print(f"  → punkt_tab not available (this is okay for older NLTK): {e}")
+    
+    # Download stopwords
+    try:
+        nltk.data.find('corpora/stopwords')
+        print("  ✓ stopwords found")
+    except LookupError:
+        print("  Downloading stopwords...")
+        try:
+            nltk.download('stopwords', quiet=False)
+            print("  ✓ stopwords downloaded successfully")
+        except Exception as e:
+            print(f"  ✗ Failed to download stopwords: {e}")
+    
+    if not punkt_downloaded:
+        print("\n⚠️  WARNING: punkt tokenizer failed to download!")
+        print("   This will cause summarization to fail.")
+        print("   Try manually: python -c \"import nltk; nltk.download('punkt')\"")
+        
+except ImportError:
+    NLTK_AVAILABLE = False
+    print("⚠️  Warning: nltk not installed. Install with: pip install nltk")
+
+# Summarization library - import AFTER NLTK setup
+try:
+    from sumy.parsers.plaintext import PlaintextParser
+    from sumy.nlp.tokenizers import Tokenizer
+    from sumy.summarizers.lsa import LsaSummarizer
+    from sumy.nlp.stemmers import Stemmer
+    from sumy.utils import get_stop_words
+    SUMY_AVAILABLE = True
+except ImportError:
+    SUMY_AVAILABLE = False
+    print("⚠️  Warning: sumy not installed. Install with: pip install sumy")
+    print("   Using fallback summarization method.")
 
 # ============================================================================
 # CONFIGURATION
@@ -121,6 +213,439 @@ POPULATION_KEYWORDS = {
                 'dementia', 'alzheimer'],
 }
 
+# Source tier mapping dictionary
+SOURCE_TIERS = {
+    # Tier 1: Peer-reviewed research
+    'tier_1': {
+        'sources': ['arXiv'],
+        'weight': 1.0,
+        'description': 'Academic research papers'
+    },
+    
+    # Tier 2: Established news outlets
+    'tier_2': {
+        'sources': [
+            'TechCrunch', 'The Verge', 'Ars Technica', 
+            'VentureBeat', 'Wired', 'MIT Tech Review AI',
+            'Reuters Tech', 'BBC Technology', 'NPR Technology',
+            'Partnership on AI'
+        ],
+        'weight': 0.8,
+        'description': 'Established news and tech publications'
+    },
+    
+    # Tier 3: Community sources
+    'tier_3': {
+        'sources': ['Hacker News'],
+        'weight': 0.6,
+        'description': 'Community discussions and forums'
+    },
+    
+    # Tier 4: Aggregators and other
+    'tier_4': {
+        'sources': ['Google News'],  # Any source starting with "Google News"
+        'weight': 0.5,
+        'description': 'News aggregators and other sources'
+    }
+}
+
+# ============================================================================
+# ARTICLE EXTRACTION AND SUMMARIZATION
+# ============================================================================
+
+def clean_html(text: str) -> str:
+    """
+    Remove HTML tags and entities from text.
+    This is critical for RSS feeds which often contain HTML.
+    """
+    if not isinstance(text, str) or not text:
+        return text or ""
+    
+    # Remove HTML tags
+    clean_text = re.sub(r'<[^>]+>', '', text)
+    # Remove HTML entities
+    clean_text = re.sub(r'&[a-zA-Z0-9#]+;', ' ', clean_text)
+    # Clean up extra whitespace
+    clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+    
+    return clean_text
+
+
+def calculate_relevance_score(title: str, summary: str, source: str) -> float:
+    """
+    Calculate a relevance score (0-100) for how related an article is to AI sycophancy.
+    
+    Scoring criteria:
+    - Primary keywords (sycophancy, flattery, etc.) = higher weight
+    - Context keywords (AI, LLM, chatbot, etc.) = required for high scores
+    - Harmful outcomes (dangerous advice, mental health, etc.) = bonus points
+    - Generic AI research without specific sycophancy focus = lower scores
+    
+    Returns:
+        float: Score from 0-100, where:
+        - 80+: Highly relevant (directly about AI sycophancy)
+        - 60-79: Relevant (discusses related issues)
+        - 40-59: Somewhat relevant (tangentially related)
+        - 0-39: Low relevance (false positive)
+    """
+    
+    # Combine text for analysis
+    full_text = f"{title} {summary}".lower()
+    
+    score = 0.0
+    
+    # PRIMARY KEYWORDS (Core sycophancy concepts) - 40 points max
+    primary_keywords = {
+        'sycophancy': 15,
+        'sycophantic': 15,
+        'flattery': 12,
+        'flatter': 12,
+        'flattering': 12,
+        'people pleasing': 10,
+        'people-pleasing': 10,
+        'too agreeable': 10,
+        'overly agreeable': 10,
+        'agrees with everything': 12,
+        'echo chamber': 8,
+        'yes-man': 10,
+        'yes man': 10,
+        'bootlicking': 8,
+    }
+    
+    for keyword, points in primary_keywords.items():
+        if keyword in full_text:
+            score += points
+            break  # Only count highest-value primary keyword once
+    
+    # SECONDARY KEYWORDS (Validation/agreement issues) - 25 points max
+    secondary_keywords = {
+        'validation': 8,
+        'validate': 8,
+        'validates': 8,
+        'validating': 8,
+        'overly supportive': 10,
+        'too supportive': 10,
+        'confirmed delusion': 12,
+        'validated belief': 10,
+        'reinforced belief': 10,
+        'reward hacking': 12,
+        'human approval': 8,
+        'user preference': 6,
+    }
+    
+    secondary_score = 0
+    for keyword, points in secondary_keywords.items():
+        if keyword in full_text:
+            secondary_score = max(secondary_score, points)
+    score += secondary_score
+    
+    # AI/LLM CONTEXT (Must be present for relevance) - 15 points max
+    ai_context = [
+        'chatbot', 'chat bot', 'llm', 'large language model',
+        'language model', 'gpt', 'chatgpt', 'claude', 'gemini',
+        'ai assistant', 'conversational ai', 'character.ai',
+        'anthropic', 'openai', 'deepseek'
+    ]
+    
+    has_ai_context = any(term in full_text for term in ai_context)
+    if has_ai_context:
+        score += 15
+    else:
+        # Penalize heavily if no AI context - likely false positive
+        score *= 0.3
+    
+    # HARMFUL OUTCOMES (Real-world impact) - 20 points bonus
+    harmful_outcomes = {
+        'dangerous advice': 15,
+        'harmful advice': 15,
+        'mental health': 10,
+        'suicide': 18,
+        'suicidal': 18,
+        'stop medication': 15,
+        'stopped medication': 15,
+        'medical advice': 10,
+        'therapy': 8,
+        'delusion': 12,
+        'psychosis': 12,
+        'crisis': 10,
+        'harm': 8,
+        'dangerous': 10,
+        'risk': 6,
+    }
+    
+    harm_score = 0
+    for keyword, points in harmful_outcomes.items():
+        if keyword in full_text:
+            harm_score += points
+            if harm_score >= 20:  # Cap at 20 bonus points
+                break
+    score += min(harm_score, 20)
+    
+    # SPECIFIC INCIDENT MARKERS (Real cases) - 15 points bonus
+    incident_markers = [
+        'lawsuit', 'incident', 'case study', 'reported', 'rollback',
+        'backlash', 'complaint', 'investigation', 'user pushback'
+    ]
+    
+    if any(marker in full_text for marker in incident_markers):
+        score += 15
+    
+    # NEGATIVE INDICATORS (Likely false positives) - penalties
+    false_positive_indicators = {
+        'code generation': -10,
+        'software development': -10,
+        'programming': -8,
+        'syntax': -8,
+        'compiler': -10,
+        'algorithm': -5,
+        'optimization': -5,
+        'machine translation': -8,
+        'image generation': -8,
+        'computer vision': -8,
+        'robotics': -8,
+        'autonomous vehicle': -10,
+        'quantum': -10,
+        'blockchain': -10,
+        'cybersecurity': -8,
+    }
+    
+    for indicator, penalty in false_positive_indicators.items():
+        if indicator in full_text and 'sycophancy' not in full_text:
+            score += penalty
+    
+    
+    return round(score, 2)
+
+
+def filter_by_relevance(incidents: List[Dict], min_score: float = 10.0) -> List[Dict]:
+    """
+    Filter incidents by relevance score and add score to each incident.
+    
+    Args:
+        incidents: List of incident dictionaries
+        min_score: Minimum relevance score to keep (default: 40)
+    
+    Returns:
+        List of filtered incidents with 'relevance_score' field added
+    """
+    
+    scored_incidents = []
+    
+    for incident in incidents:
+        score = calculate_relevance_score(
+            incident.get('title', ''),
+            incident.get('summary', ''),
+            incident.get('source', '')
+        )
+        
+        incident['relevance_score'] = score
+        
+        if score >= min_score:
+            scored_incidents.append(incident)
+    
+    return scored_incidents
+
+
+def summarize_text_lsa(text: str, num_sentences: int = 3) -> str:
+    """
+    Create a true extractive summary using LSA (Latent Semantic Analysis).
+    This selects the most important sentences, not just the first ones.
+    """
+    if not text or len(text.strip()) < 100:
+        return text
+    
+    try:
+        if SUMY_AVAILABLE:
+            # Use LSA summarization - ranks sentences by importance
+            parser = PlaintextParser.from_string(text, Tokenizer("english"))
+            stemmer = Stemmer("english")
+            summarizer = LsaSummarizer(stemmer)
+            summarizer.stop_words = get_stop_words("english")
+            
+            # Get most important sentences
+            summary_sentences = summarizer(parser.document, num_sentences)
+            
+            # Convert to string
+            summary = ' '.join([str(sentence) for sentence in summary_sentences])
+            
+            if len(summary) > 500:
+                summary = summary[:497] + '...'
+            
+            return summary.strip()
+    except Exception as e:
+        print(f"        LSA summarization failed: {str(e)[:50]}")
+    
+    # Fallback to basic extractive summarization
+    return summarize_text_fallback(text, num_sentences)
+
+
+def summarize_text_fallback(text: str, num_sentences: int = 3) -> str:
+    """
+    Fallback summarization using sentence scoring based on:
+    - Sentence position (earlier sentences weighted higher)
+    - Keyword frequency
+    - Sentence length (not too short, not too long)
+    """
+    if not text or len(text.strip()) < 100:
+        return text
+    
+    # Split into sentences
+    sentences = re.split(r'[.!?]\s+', text)
+    sentences = [s.strip() for s in sentences if len(s.strip()) > 20]
+    
+    if len(sentences) <= num_sentences:
+        return ' '.join(sentences)
+    
+    # Score each sentence
+    scored_sentences = []
+    
+    for idx, sentence in enumerate(sentences):
+        score = 0
+        
+        # Position score (earlier sentences are more important)
+        position_score = 1.0 / (idx + 1)
+        score += position_score * 2
+        
+        # Length score (prefer medium-length sentences)
+        length = len(sentence.split())
+        if 10 <= length <= 30:
+            score += 1.5
+        elif 5 <= length <= 40:
+            score += 1.0
+        
+        # Keyword score (check for important keywords)
+        sentence_lower = sentence.lower()
+        important_keywords = ['research', 'study', 'found', 'shows', 'according', 
+                            'report', 'expert', 'scientist', 'professor', 'revealed',
+                            'ai', 'chatbot', 'model', 'system', 'users', 'people',
+                            'sycophancy', 'flattery', 'validation', 'mental health',
+                            'dangerous', 'harmful', 'problem', 'issue', 'concern']
+        
+        keyword_count = sum(1 for kw in important_keywords if kw in sentence_lower)
+        score += keyword_count * 0.5
+        
+        scored_sentences.append((score, idx, sentence))
+    
+    # Sort by score (descending) and take top N
+    scored_sentences.sort(reverse=True, key=lambda x: x[0])
+    top_sentences = scored_sentences[:num_sentences]
+    
+    # Sort by original position to maintain flow
+    top_sentences.sort(key=lambda x: x[1])
+    
+    # Join sentences
+    summary = ' '.join([sent[2] for sent in top_sentences])
+    
+    if len(summary) > 500:
+        summary = summary[:497] + '...'
+    
+    return summary.strip()
+
+
+def extract_article_text(url: str) -> Optional[str]:
+    """
+    Extract full article text from URL.
+    Returns None if extraction fails.
+    """
+    # Try newspaper3k first (best results)
+    if NEWSPAPER_AVAILABLE:
+        try:
+            article = Article(url)
+            article.download()
+            article.parse()
+            
+            if article.text and len(article.text) > 200:
+                return article.text
+        except Exception as e:
+            pass
+    
+    # Fallback to BeautifulSoup
+    try:
+        response = requests.get(url, timeout=10, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        })
+        
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            # Remove script and style elements
+            for script in soup(['script', 'style', 'nav', 'header', 'footer', 'aside']):
+                script.decompose()
+            
+            # Try to find article content
+            article_text = ''
+            
+            # Common article selectors
+            article_selectors = [
+                'article',
+                '[role="article"]',
+                '.article-content',
+                '.article-body',
+                '.post-content',
+                '.entry-content',
+                'main',
+            ]
+            
+            for selector in article_selectors:
+                article_elem = soup.select_one(selector)
+                if article_elem:
+                    # Get all paragraphs
+                    paragraphs = article_elem.find_all('p')
+                    if paragraphs:
+                        article_text = ' '.join([p.get_text().strip() for p in paragraphs])
+                        break
+            
+            # If no article found, try all paragraphs
+            if not article_text:
+                paragraphs = soup.find_all('p')
+                if paragraphs:
+                    article_text = ' '.join([p.get_text().strip() for p in paragraphs])
+            
+            if article_text and len(article_text) > 200:
+                # Clean up whitespace
+                article_text = re.sub(r'\s+', ' ', article_text).strip()
+                return article_text
+                
+    except Exception as e:
+        pass
+    
+    return None
+
+
+def extract_article_summary(url: str, fallback_text: str = '') -> str:
+    """
+    Extract article and create a TRUE SUMMARY using extractive summarization.
+    
+    Args:
+        url: Article URL to fetch
+        fallback_text: RSS feed summary to use if extraction fails (may contain HTML)
+    
+    Returns:
+        Article summary (500 chars max), HTML-cleaned
+    """
+    
+    # Clean HTML from fallback text immediately
+    clean_fallback = clean_html(fallback_text) if fallback_text else ""
+    
+    # Extract full article text
+    article_text = extract_article_text(url)
+    
+    if article_text:
+        # Create a REAL summary using LSA or fallback method
+        summary = summarize_text_lsa(article_text, num_sentences=3)
+        return clean_html(summary)  # Extra safety: clean any HTML in extracted text
+    
+    # If extraction failed, try to summarize fallback text
+    if clean_fallback and len(clean_fallback) > 100:
+        summary = summarize_text_lsa(clean_fallback, num_sentences=2)
+        return clean_html(summary)
+    
+    # Last resort - return cleaned fallback or error message
+    if clean_fallback:
+        return clean_fallback[:500]
+    
+    return "Summary unavailable - article extraction failed"
+
 # ============================================================================
 # HISTORICAL DATA SOURCES
 # ============================================================================
@@ -129,9 +654,10 @@ POPULATION_KEYWORDS = {
 def search_arxiv_papers() -> List[Dict]:
     """
     Search arXiv for sycophancy research papers (2023+)
-    arXiv API is free and has no rate limits
+    Uses arxiv library for cleaner API access and direct DOI extraction
     """
     incidents = []
+    seen_entries = set()
     
     print("\n  Searching arXiv for research papers (2023-present)...")
     
@@ -147,60 +673,58 @@ def search_arxiv_papers() -> List[Dict]:
     ]
     
     try:
+        client = arxiv.Client()
+        
         for query in search_queries:
-            # Increase max_results to 200 to get more historical papers
-            url = f"http://export.arxiv.org/api/query?search_query=all:{quote(query)}&start=0&max_results=200&sortBy=submittedDate&sortOrder=descending"
+            search = arxiv.Search(
+                query=query,
+                max_results=200,
+                sort_by=arxiv.SortCriterion.SubmittedDate,
+                sort_order=arxiv.SortOrder.Descending
+            )
             
-            response = requests.get(url, timeout=30)
-            
-            if response.status_code == 200:
-                # Parse XML response
-                from xml.etree import ElementTree as ET
-                root = ET.fromstring(response.content)
-                
-                # Namespace for arXiv
-                ns = {'atom': 'http://www.w3.org/2005/Atom'}
-                
-                for entry in root.findall('atom:entry', ns):
-                    # Get publication date
-                    published = entry.find('atom:published', ns)
-                    pub_date_str = published.text if published is not None else ''
+            for result in client.results(search):
+                # Only include 2023 or later
+                if result.published.year >= 2023:
+                    # Create unique key to avoid duplicates
+                    entry_key = (
+                        result.title,
+                        result.published,
+                        result.entry_id
+                    )
                     
-                    try:
-                        pub_date = datetime.strptime(pub_date_str[:10], '%Y-%m-%d')
+                    if entry_key not in seen_entries:
+                        seen_entries.add(entry_key)
                         
-                        # Only include 2023 or later
-                        if pub_date >= datetime(2023, 1, 1):
-                            title_elem = entry.find('atom:title', ns)
-                            summary_elem = entry.find('atom:summary', ns)
-                            id_elem = entry.find('atom:id', ns)
-                            
-                            title = title_elem.text if title_elem is not None else ''
-                            summary = summary_elem.text if summary_elem is not None else ''
-                            paper_url = id_elem.text if id_elem is not None else ''
-                            
-                            # Extract populations from abstract
-                            full_text = f"{title} {summary}".lower()
-                            populations = []
-                            for pop_type, keywords in POPULATION_KEYWORDS.items():
-                                if any(keyword in full_text for keyword in keywords):
-                                    populations.append(pop_type)
-                            
-                            incidents.append({
-                                'title': title.strip(),
-                                'url': paper_url,
-                                'summary': summary.strip()[:500],
-                                'source': 'arXiv',
-                                'publication_date': pub_date_str[:10],
-                                'date_found': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                                'vulnerable_populations': ', '.join(populations),
-                                'needs_review': True,
-                                'severity': '',
-                                'status': 'discovered',
-                                'reviewer_notes': 'Research paper'
-                            })
-                    except:
-                        pass
+                        # Extract DOI (directly available from result)
+                        doi = result.doi if result.doi else ''
+                        has_doi = bool(doi)
+                        
+                        # Extract populations from abstract
+                        full_text = f"{result.title} {result.summary}".lower()
+                        populations = []
+                        for pop_type, keywords in POPULATION_KEYWORDS.items():
+                            if any(keyword in full_text for keyword in keywords):
+                                populations.append(pop_type)
+                        
+                        # Create a summary of the abstract using LSA
+                        abstract_summary = summarize_text_lsa(result.summary.strip(), num_sentences=3)
+                        
+                        incidents.append({
+                            'title': result.title.strip(),
+                            'url': result.entry_id,
+                            'summary': abstract_summary,
+                            'source': 'arXiv',
+                            'publication_date': result.published.strftime('%Y-%m-%d'),
+                            'date_found': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                            'vulnerable_populations': ', '.join(populations),
+                            'has_doi': has_doi,
+                            'doi': doi,
+                            'needs_review': True,
+                            'severity': '',
+                            'status': 'discovered',
+                            'reviewer_notes': 'Research paper'
+                        })
             
             time.sleep(3)  # Be respectful to arXiv
         
@@ -211,15 +735,16 @@ def search_arxiv_papers() -> List[Dict]:
     
     return incidents
 
-
 def get_google_news_historical() -> List[Dict]:
     """
     Search Google News RSS for historical articles (2023-2024)
     Uses date-specific searches to find older articles
+    NOW CREATES TRUE SUMMARIES
     """
     incidents = []
     
     print("\n  Searching Google News historical archives (2023-2024)...")
+    print("     (Extracting and summarizing articles - this takes time)")
     
     # Date-specific searches that Google News can find
     historical_queries = [
@@ -250,43 +775,59 @@ def get_google_news_historical() -> List[Dict]:
             feed = feedparser.parse(feed_url)
             
             for entry in feed.entries[:20]:  # Top 20 results per query
-                title = entry.get('title', '')
-                summary = entry.get('summary', '') or entry.get('description', '')
-                link = entry.get('link', '')
-                
-                # Parse publication date
-                pub_date = None
-                if hasattr(entry, 'published_parsed') and entry.published_parsed:
-                    pub_date = datetime(*entry.published_parsed[:6])
-                
-                # Check if relevant
-                if not is_relevant_content(title, summary, SYCOPHANCY_KEYWORDS):
+                try:
+                    title = clean_html(entry.get('title', ''))  # Clean HTML from title
+                    link = entry.get('link', '')
+                    
+                    # Check for sycophancy relevance
+                    text_to_check = title.lower()
+                    if not any(keyword in text_to_check for keyword in SYCOPHANCY_KEYWORDS):
+                        continue
+                    
+                    # Parse publication date
+                    pub_date = None
+                    if hasattr(entry, 'published_parsed') and entry.published_parsed:
+                        pub_date = datetime(*entry.published_parsed[:6])
+                    
+                    # EXTRACT AND SUMMARIZE ARTICLE
+                    rss_summary = entry.get('summary', '') or entry.get('description', '')
+                    print(f"      Summarizing: {title[:60]}...")
+                    article_summary = extract_article_summary(link, rss_summary)
+                    
+                    # Extract populations
+                    full_text = f"{title} {article_summary}".lower()
+                    populations = []
+                    for pop_type, keywords in POPULATION_KEYWORDS.items():
+                        if any(keyword in full_text for keyword in keywords):
+                            populations.append(pop_type)
+                    
+                    incidents.append({
+                        'title': title,
+                        'url': link,
+                        'summary': article_summary,
+                        'source': f"Google News: {query}",
+                        'publication_date': pub_date.strftime('%Y-%m-%d') if pub_date else '',
+                        'date_found': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        'vulnerable_populations': ', '.join(populations),
+                        'needs_review': True,
+                        'severity': '',
+                        'status': 'discovered',
+                        'reviewer_notes': ''
+                    })
+                    
+                    time.sleep(2)  # Be respectful between article extractions
+                    
+                except Exception as e:
+                    print(f"      Error processing entry: {e}")
                     continue
-                
-                # Extract populations
-                populations = extract_populations(f"{title} {summary}")
-                
-                incidents.append({
-                    'title': title,
-                    'url': link,
-                    'summary': summary[:500],
-                    'source': 'Google News (Historical)',
-                    'publication_date': pub_date.strftime('%Y-%m-%d %H:%M:%S') if pub_date else '',
-                    'date_found': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                    'vulnerable_populations': ', '.join(populations),
-                    'needs_review': True,
-                    'severity': '',
-                    'status': 'discovered',
-                    'reviewer_notes': ''
-                })
             
-            time.sleep(2)  # Be respectful
+            time.sleep(1)
             
         except Exception as e:
             print(f"    Error with query '{query}': {e}")
             continue
     
-    print(f"    ✓ Found {len(incidents)} articles from Google News archives")
+    print(f"    ✓ Found {len(incidents)} historical articles with true summaries")
     return incidents
 
 
@@ -294,10 +835,12 @@ def get_hacker_news_historical() -> List[Dict]:
     """
     Search Hacker News for historical discussions (2023+)
     Uses Algolia's free API
+    NOW CREATES TRUE SUMMARIES FROM LINKED ARTICLES
     """
     incidents = []
     
-    print("\n  Searching Hacker News (2023+)...")
+    print("\n  Searching Hacker News archives (2023-present)...")
+    print("     (Summarizing linked articles)")
     
     # Algolia HN API supports date filtering
     # Expanded search terms to catch more relevant discussions
@@ -321,29 +864,47 @@ def get_hacker_news_historical() -> List[Dict]:
         start_timestamp = int(datetime(2023, 1, 1).timestamp())
         
         for term in search_terms:
-            url = f"https://hn.algolia.com/api/v1/search?query={quote(term)}&tags=story&numericFilters=created_at_i>{start_timestamp}"
+            api_url = f"https://hn.algolia.com/api/v1/search?query={quote(term)}&tags=story&numericFilters=created_at_i>{start_timestamp}"
             
-            response = requests.get(url, timeout=10)
+            response = requests.get(api_url, timeout=10)
             
             if response.status_code == 200:
                 data = response.json()
                 
                 for hit in data.get('hits', []):
+                    title = clean_html(hit.get('title', ''))  # Clean HTML from title
+                    article_url = hit.get('url', '')
+                    hn_url = f"https://news.ycombinator.com/item?id={hit.get('objectID', '')}"
+                    
+                    # Skip if no external URL
+                    if not article_url:
+                        continue
+                    
+                    # Check relevance
+                    text_check = title.lower()
+                    if not any(keyword in text_check for keyword in SYCOPHANCY_KEYWORDS):
+                        continue
+                    
+                    # Get timestamp
                     created_at = datetime.fromtimestamp(hit.get('created_at_i', 0))
                     
+                    # EXTRACT AND SUMMARIZE ARTICLE
+                    print(f"      Summarizing: {title[:60]}...")
+                    article_summary = extract_article_summary(article_url, f"HN discussion: {title}")
+                    
                     # Extract populations
-                    full_text = f"{hit.get('title', '')} {hit.get('story_text', '')}".lower()
+                    full_text = f"{title} {article_summary}".lower()
                     populations = []
                     for pop_type, keywords in POPULATION_KEYWORDS.items():
                         if any(keyword in full_text for keyword in keywords):
                             populations.append(pop_type)
                     
                     incidents.append({
-                        'title': hit.get('title', ''),
-                        'url': hit.get('url', f"https://news.ycombinator.com/item?id={hit.get('objectID')}"),
-                        'summary': hit.get('story_text', '')[:500],
+                        'title': title,
+                        'url': hn_url,  # Link to HN discussion
+                        'summary': article_summary,
                         'source': 'Hacker News',
-                        'publication_date': created_at.strftime('%Y-%m-%d %H:%M:%S'),
+                        'publication_date': created_at.strftime('%Y-%m-%d') if created_at else '',
                         'date_found': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                         'vulnerable_populations': ', '.join(populations),
                         'hn_points': hit.get('points', 0),
@@ -351,12 +912,14 @@ def get_hacker_news_historical() -> List[Dict]:
                         'needs_review': True,
                         'severity': '',
                         'status': 'discovered',
-                        'reviewer_notes': ''
+                        'reviewer_notes': f"HN Score: {hit.get('points', 0)}, Comments: {hit.get('num_comments', 0)}"
                     })
+                    
+                    time.sleep(2)  # Be respectful
             
             time.sleep(1)
         
-        print(f"    ✓ Found {len(incidents)} Hacker News stories from 2023+")
+        print(f"    ✓ Found {len(incidents)} HN items with true summaries")
     
     except Exception as e:
         print(f"    Error searching Hacker News: {e}")
@@ -386,17 +949,18 @@ def extract_populations(text: str) -> List[str]:
     return populations
 
 
-def parse_feed(feed_url: str, feed_name: str, days_back: int = 90) -> List[Dict]:
+def parse_feed(feed_url: str, feed_name: str, days_back: int = 180) -> List[Dict]:
     """
     Parse RSS feed and extract relevant entries
+    NOW CREATES TRUE SUMMARIES
     
     Args:
         feed_url: URL of RSS feed
         feed_name: Name of the feed source
-        days_back: How many days back to include entries (default 90 for broader capture)
+        days_back: How many days back to include entries (default 180 for broader capture)
     
     Returns:
-        List of incident dictionaries
+        List of incident dictionaries with true summaries
     """
     incidents = []
     cutoff_date = datetime.now() - timedelta(days=days_back)
@@ -406,8 +970,7 @@ def parse_feed(feed_url: str, feed_name: str, days_back: int = 90) -> List[Dict]
         
         for entry in feed.entries:
             # Get entry details
-            title = entry.get('title', '')
-            summary = entry.get('summary', '') or entry.get('description', '')
+            title = clean_html(entry.get('title', ''))  # Clean HTML from title
             link = entry.get('link', '')
             
             # Parse publication date
@@ -417,22 +980,40 @@ def parse_feed(feed_url: str, feed_name: str, days_back: int = 90) -> List[Dict]
             elif hasattr(entry, 'updated_parsed') and entry.updated_parsed:
                 pub_date = datetime(*entry.updated_parsed[:6])
             
-            # Skip if too old (but RSS usually only has recent anyway)
+            # Skip if too old
             if pub_date and pub_date < cutoff_date:
                 continue
             
-            # Check if relevant to sycophancy
-            if not is_relevant_content(title, summary, SYCOPHANCY_KEYWORDS):
+            # Check if relevant to sycophancy (check title first for efficiency)
+            title_lower = title.lower()
+            if not any(keyword in title_lower for keyword in SYCOPHANCY_KEYWORDS):
                 continue
             
+            # Get RSS summary (often blank or minimal)
+            rss_summary = ''
+            if hasattr(entry, 'summary'):
+                rss_summary = entry.summary
+            elif hasattr(entry, 'description'):
+                rss_summary = entry.description
+            elif hasattr(entry, 'content'):
+                rss_summary = entry.content[0].value if entry.content else ''
+            
+            # EXTRACT AND SUMMARIZE ARTICLE
+            print(f"      Summarizing: {title[:60]}...")
+            article_summary = extract_article_summary(link, rss_summary)
+            
             # Extract populations
-            populations = extract_populations(f"{title} {summary}")
+            full_text = f"{title} {article_summary}".lower()
+            populations = []
+            for pop_type, keywords in POPULATION_KEYWORDS.items():
+                if any(keyword in full_text for keyword in keywords):
+                    populations.append(pop_type)
             
             # Create incident record
             incident = {
                 'title': title,
                 'url': link,
-                'summary': summary[:500],
+                'summary': article_summary,
                 'source': feed_name,
                 'publication_date': pub_date.strftime('%Y-%m-%d %H:%M:%S') if pub_date else '',
                 'date_found': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
@@ -444,6 +1025,7 @@ def parse_feed(feed_url: str, feed_name: str, days_back: int = 90) -> List[Dict]
             }
             
             incidents.append(incident)
+            time.sleep(2)  # Be respectful between extractions
     
     except Exception as e:
         print(f"    ⚠️  Error parsing {feed_name}: {e}")
@@ -461,11 +1043,12 @@ def create_google_news_feeds(search_terms: List[str]) -> Dict[str, str]:
     return feeds
 
 
-def scan_rss_feeds(feeds: Dict[str, str], days_back: int = 90) -> List[Dict]:
+def scan_rss_feeds(feeds: Dict[str, str], days_back: int = 180) -> List[Dict]:
     """Scan all RSS feeds for recent incidents"""
     all_incidents = []
     
     print(f"\n  Scanning {len(feeds)} RSS feeds (last {days_back} days)...")
+    print("     (Creating true summaries - this takes time)")
     
     for feed_name, feed_url in feeds.items():
         incidents = parse_feed(feed_url, feed_name, days_back)
@@ -473,11 +1056,39 @@ def scan_rss_feeds(feeds: Dict[str, str], days_back: int = 90) -> List[Dict]:
         if incidents:
             all_incidents.extend(incidents)
         
-        time.sleep(0.5)  # Be polite
+        time.sleep(1.0)  # Be polite
     
-    print(f"    ✓ Found {len(all_incidents)} relevant articles from RSS")
+    print(f"    ✓ Found {len(all_incidents)} relevant articles with true summaries")
     
     return all_incidents
+
+
+# ============================================================================
+# LOGGING SETUP
+# ============================================================================
+
+class TeeOutput:
+    """Class to write output to both console and log file"""
+    def __init__(self, log_file: Optional[str] = None):
+        self.terminal = sys.stdout
+        self.log_file = None
+        if log_file:
+            self.log_file = open(log_file, 'w', encoding='utf-8')
+    
+    def write(self, message):
+        self.terminal.write(message)
+        if self.log_file:
+            self.log_file.write(message)
+            self.log_file.flush()
+    
+    def flush(self):
+        self.terminal.flush()
+        if self.log_file:
+            self.log_file.flush()
+    
+    def close(self):
+        if self.log_file:
+            self.log_file.close()
 
 
 # ============================================================================
@@ -498,6 +1109,262 @@ def remove_duplicates(incidents: List[Dict]) -> List[Dict]:
     return unique
 
 
+def compute_relevancy_scores(incidents: List[Dict], use_embeddings: bool = True) -> List[Dict]:
+    """
+    Compute relevancy scores for each incident using semantic embeddings or TF-IDF.
+    Scores how relevant each article is to AI sycophancy topics.
+    
+    Args:
+        incidents: List of incident dictionaries
+        use_embeddings: If True, use semantic embeddings (better but slower). 
+                       If False or unavailable, fall back to TF-IDF.
+    
+    Returns incidents with 'relevancy_score' field added (0.0 to 1.0).
+    """
+    if not incidents:
+        return incidents
+    
+    # Try to use embeddings if requested and available
+    if use_embeddings and EMBEDDINGS_AVAILABLE:
+        return _compute_scores_with_embeddings(incidents)
+    else:
+        if use_embeddings and not EMBEDDINGS_AVAILABLE:
+            print("\n[4/6] COMPUTING RELEVANCY SCORES")
+            print("-" * 80)
+            print("  ⚠️  sentence-transformers not available, using TF-IDF instead")
+            print("  Install with: pip install sentence-transformers")
+        else:
+            print("\n[4/6] COMPUTING RELEVANCY SCORES (TF-IDF)")
+            print("-" * 80)
+        return _compute_scores_with_tfidf(incidents)
+
+
+def _compute_scores_with_embeddings(incidents: List[Dict]) -> List[Dict]:
+    """Compute relevancy scores using semantic embeddings"""
+    print("\n[4/6] COMPUTING RELEVANCY SCORES (Semantic Embeddings)")
+    print("-" * 80)
+    print("  Loading embedding model... (this may take a moment on first run)")
+    
+    try:
+        # Use a lightweight, fast model optimized for semantic similarity
+        # all-MiniLM-L6-v2 is small (~80MB) and fast
+        model = SentenceTransformer('all-MiniLM-L6-v2')
+        print("  ✓ Model loaded")
+        
+        # Create a comprehensive query that describes what we're looking for
+        query_text = (
+            "AI sycophancy incidents where chatbots or language models provide "
+            "harmful validation, excessive flattery, dangerous advice, or overly agreeable responses. "
+            "This includes cases where AI systems validate delusions, encourage stopping medication, "
+            "provide harmful mental health advice, or exhibit people-pleasing behavior that causes harm. "
+            "Sycophantic AI behavior, reward hacking, and validation bias in language models."
+        )
+        
+        # Combine title and summary for each article
+        article_texts = []
+        for incident in incidents:
+            title = incident.get('title', '')
+            summary = incident.get('summary', '')
+            article_text = f"{title}. {summary}".strip()
+            article_texts.append(article_text)
+        
+        print(f"  Encoding {len(article_texts)} articles...")
+        
+        # Generate embeddings for query and all articles
+        query_embedding = model.encode([query_text], convert_to_numpy=True)
+        article_embeddings = model.encode(article_texts, convert_to_numpy=True, show_progress_bar=False)
+        
+        # Compute cosine similarity between query and each article
+        similarity_scores = cosine_similarity(query_embedding, article_embeddings)[0]
+        
+        # Add relevancy_score to each incident
+        for i, incident in enumerate(incidents):
+            # Round to 4 decimal places for readability
+            incident['relevancy_score'] = round(float(similarity_scores[i]), 4)
+        
+        # Print statistics
+        scores = [inc['relevancy_score'] for inc in incidents]
+        print(f"  ✓ Computed relevancy scores for {len(incidents)} incidents")
+        print(f"  Score range: {min(scores):.4f} to {max(scores):.4f}")
+        print(f"  Average score: {np.mean(scores):.4f}")
+        print(f"  High relevancy (≥0.5): {sum(1 for s in scores if s >= 0.5)} incidents")
+        print(f"  Medium relevancy (0.3-0.5): {sum(1 for s in scores if 0.3 <= s < 0.5)} incidents")
+        print(f"  Low relevancy (<0.3): {sum(1 for s in scores if s < 0.3)} incidents")
+        
+    except Exception as e:
+        print(f"  Error computing embeddings: {e}")
+        print("  Falling back to TF-IDF...")
+        return _compute_scores_with_tfidf(incidents)
+    
+    return incidents
+
+
+def _compute_scores_with_tfidf(incidents: List[Dict]) -> List[Dict]:
+    """Compute relevancy scores using TF-IDF (fallback method)"""
+    # Create query document from sycophancy keywords
+    # Repeat keywords to give them more weight in the query
+    query_text = ' '.join(SYCOPHANCY_KEYWORDS * 3)  # Repeat 3x for emphasis
+    
+    # Combine title and summary for each article
+    article_texts = []
+    for incident in incidents:
+        title = incident.get('title', '')
+        summary = incident.get('summary', '')
+        article_text = f"{title} {summary}".strip()
+        article_texts.append(article_text)
+    
+    # Add query as first document, then all articles
+    all_texts = [query_text] + article_texts
+    
+    try:
+        # Initialize TF-IDF vectorizer
+        # Use ngram_range=(1,2) to capture phrases, max_features to limit vocabulary size
+        vectorizer = TfidfVectorizer(
+            max_features=5000,
+            ngram_range=(1, 2),  # Unigrams and bigrams
+            stop_words='english',
+            lowercase=True,
+            min_df=1,  # Word must appear in at least 1 document
+            max_df=0.95  # Ignore words that appear in >95% of documents
+        )
+        
+        # Fit and transform all texts
+        tfidf_matrix = vectorizer.fit_transform(all_texts)
+        
+        # Extract query vector (first row) and article vectors (rest)
+        query_vector = tfidf_matrix[0:1]
+        article_vectors = tfidf_matrix[1:]
+        
+        # Compute cosine similarity between query and each article
+        similarity_scores = cosine_similarity(query_vector, article_vectors)[0]
+        
+        # Add relevancy_score to each incident
+        for i, incident in enumerate(incidents):
+            # Round to 4 decimal places for readability
+            incident['relevancy_score'] = round(float(similarity_scores[i]), 4)
+        
+        # Print statistics
+        scores = [inc['relevancy_score'] for inc in incidents]
+        print(f"  ✓ Computed relevancy scores for {len(incidents)} incidents")
+        print(f"  Score range: {min(scores):.4f} to {max(scores):.4f}")
+        print(f"  Average score: {np.mean(scores):.4f}")
+        print(f"  High relevancy (≥0.3): {sum(1 for s in scores if s >= 0.3)} incidents")
+        print(f"  Medium relevancy (0.1-0.3): {sum(1 for s in scores if 0.1 <= s < 0.3)} incidents")
+        print(f"  Low relevancy (<0.1): {sum(1 for s in scores if s < 0.1)} incidents")
+        
+    except Exception as e:
+        print(f"  Error computing relevancy scores: {e}")
+        print("  Continuing without relevancy scores...")
+        # Add default score if computation fails
+        for incident in incidents:
+            incident['relevancy_score'] = 0.0
+    
+    return incidents
+
+def assign_source_tier(source: str) -> tuple[str, float]:
+    """
+    Assign tier and weight to a source.
+    
+    Returns:
+        (tier_name: str, weight: float)
+    """
+    # Check if it's arXiv
+    if source == 'arXiv':
+        return 'tier_1', 1.0
+    
+    # Check if it's Hacker News
+    if source == 'Hacker News':
+        return 'tier_3', 0.6
+    
+    # Check if it's Google News (any variant)
+    if source.startswith('Google News'):
+        return 'tier_4', 0.5
+    
+    # Check if it's in tier 2 (established news)
+    tier_2_sources = [
+        'TechCrunch', 'The Verge', 'Ars Technica', 
+        'VentureBeat', 'Wired', 'MIT Tech Review AI',
+        'Reuters Tech', 'BBC Technology', 'NPR Technology',
+        'Partnership on AI'
+    ]
+    if source in tier_2_sources:
+        return 'tier_2', 0.8
+    
+    # Default to tier 4
+    return 'tier_4', 0.5
+
+def calculate_credibility_score(
+    relevancy_score: float,
+    source_tier: str,
+    tier_weight: float,
+    has_doi: bool,
+    is_research: bool
+) -> float:
+    """
+    Calculate credibility score combining relevancy, source tier, and DOI.
+    
+    Formula:
+        credibility = (relevancy × tier_weight) + doi_bonus
+    
+    Where:
+        - doi_bonus = 0.1 if has_doi and is_research, else 0.0
+        - tier_weight varies by source tier
+    """
+    # Base credibility from relevancy weighted by source tier
+    base_credibility = relevancy_score * tier_weight
+    
+    # DOI bonus (only for research papers)
+    doi_bonus = 0.1 if (has_doi and is_research) else 0.0
+    
+    # Final credibility score
+    credibility_score = base_credibility + doi_bonus
+    
+    return min(credibility_score, 1.0)
+
+def add_credibility_scores(incidents: List[Dict]) -> List[Dict]:
+    """
+    Add credibility scores, source tiers, and DOI detection to incidents.
+    This runs after relevancy scores are computed.
+    """
+    for incident in incidents:
+        source = incident.get('source', '')
+        
+        # Assign source tier
+        tier_name, tier_weight = assign_source_tier(source)
+        incident['source_tier'] = tier_name
+        incident['tier_weight'] = tier_weight
+        
+        # For arXiv papers, DOI is already extracted in search_arxiv_papers()
+        # For other sources, try to detect DOI
+        if source == 'arXiv':
+            # Use DOI already extracted from arxiv library
+            has_doi = incident.get('has_doi', False)
+            doi_value = incident.get('doi', '')
+        else:
+            # Non-arXiv sources don't have DOIs
+            has_doi = False
+            doi_value = ''
+        
+        incident['has_doi'] = has_doi
+        incident['doi'] = doi_value if has_doi else ''
+        
+        # Determine if it's research
+        is_research = (source == 'arXiv')
+        
+        # Calculate credibility score
+        relevancy = incident.get('relevancy_score', 0.0)
+        credibility = calculate_credibility_score(
+            relevancy_score=relevancy,
+            source_tier=tier_name,
+            tier_weight=tier_weight,
+            has_doi=has_doi,
+            is_research=is_research
+        )
+        
+        incident['credibility_score'] = round(credibility, 4)
+    
+    return incidents
+
 def save_results(incidents: List[Dict], output_file: str = 'sycophancy_incidents_2023_present.csv'):
     """Save incidents to CSV with summary statistics"""
     if not incidents:
@@ -506,9 +1373,16 @@ def save_results(incidents: List[Dict], output_file: str = 'sycophancy_incidents
     
     df = pd.DataFrame(incidents)
     
-    # Sort by publication date (oldest to newest for historical view)
+    # Convert publication_date to datetime
     df['publication_date'] = pd.to_datetime(df['publication_date'], errors='coerce')
-    df = df.sort_values('publication_date', ascending=True)
+    
+    # Sort by relevancy_score (highest first), then by publication_date (newest first)
+    if 'relevancy_score' in df.columns:
+        if 'credibility_score' in df.columns:
+            df = df.sort_values(['credibility_score', 'relevancy_score', 'publication_date'], 
+                                ascending=[False, False, False])
+        else:
+            df = df.sort_values(['relevancy_score', 'publication_date'], ascending=[False, False])
     
     # Save to CSV
     df.to_csv(output_file, index=False)
@@ -556,6 +1430,44 @@ def save_results(incidents: List[Dict], output_file: str = 'sycophancy_incidents
         latest = valid_dates.max()
         print(f"\nDate Range: {earliest.strftime('%Y-%m-%d')} to {latest.strftime('%Y-%m-%d')}")
     
+    # Relevancy score statistics
+    if 'relevancy_score' in df.columns:
+        print("\nRelevancy Score Statistics:")
+        print(f"  Average: {df['relevancy_score'].mean():.4f}")
+        print(f"  Median: {df['relevancy_score'].median():.4f}")
+        print(f"  Top 10 scores: {', '.join([f'{s:.4f}' for s in df['relevancy_score'].nlargest(10).values])}")
+        print(f"  Articles sorted by relevancy score (highest first)")
+    
+    # Credibility score statistics
+    if 'credibility_score' in df.columns:
+        print("\nCredibility Score Statistics:")
+        print(f"  Average: {df['credibility_score'].mean():.4f}")
+        print(f"  Median: {df['credibility_score'].median():.4f}")
+        print(f"  Top 10 scores: {', '.join([f'{s:.4f}' for s in df['credibility_score'].nlargest(10).values])}")
+    
+        # Breakdown by source tier
+        print("\nCredibility by Source Tier:")
+        for tier in ['tier_1', 'tier_2', 'tier_3', 'tier_4']:
+            tier_df = df[df['source_tier'] == tier]
+            if not tier_df.empty:
+                avg_cred = tier_df['credibility_score'].mean()
+                count = len(tier_df)
+                tier_desc = SOURCE_TIERS[tier]['description']
+                print(f"  {tier} ({tier_desc}): {count} articles, avg credibility: {avg_cred:.4f}")
+        
+        # DOI statistics
+        if 'has_doi' in df.columns:
+            doi_count = df['has_doi'].sum()
+            print(f"\nResearch papers with DOI: {doi_count}")
+            if doi_count > 0:
+                doi_avg_cred = df[df['has_doi']]['credibility_score'].mean()
+                no_doi_avg_cred = df[~df['has_doi'] & (df['source'] == 'arXiv')]['credibility_score'].mean()
+                print(f"  Average credibility with DOI: {doi_avg_cred:.4f}")
+                if not pd.isna(no_doi_avg_cred):
+                    print(f"  Average credibility without DOI: {no_doi_avg_cred:.4f}")
+        
+    print(f"  Articles sorted by credibility score (highest first)")
+    
     print("\n" + "=" * 80)
     print("\nNext Steps:")
     print("1. Review the CSV file and validate each incident")
@@ -579,6 +1491,12 @@ Examples:
   # Custom output file
   python scanner.py --output my_incidents.csv
   
+  # Save console output to log file
+  python scanner.py --log scan_output.txt
+  
+  # Use TF-IDF instead of embeddings (faster)
+  python scanner.py --use-tfidf
+  
   # Skip historical sources (RSS only)
   python scanner.py --no-historical
         """
@@ -599,65 +1517,104 @@ Examples:
     parser.add_argument(
         '--rss-days',
         type=int,
-        default=90,
-        help='Days back to scan for RSS feeds (default: 90)'
+        default=180,
+        help='Days back to scan for RSS feeds (default: 180)'
+    )
+    
+    parser.add_argument(
+        '--log',
+        type=str,
+        default=None,
+        help='Save console output to log file (e.g., --log scan_output.txt)'
+    )
+    
+    parser.add_argument(
+        '--use-tfidf',
+        action='store_true',
+        help='Use TF-IDF instead of semantic embeddings (faster but less accurate)'
     )
     
     args = parser.parse_args()
     
+    # Set up logging if requested
+    tee = None
+    if args.log:
+        tee = TeeOutput(args.log)
+        sys.stdout = tee
+        print(f"Logging output to: {args.log}\n")
+    
     all_incidents = []
     
-    print("=" * 80)
-    print("AI SYCOPHANCY INCIDENT SCANNER (2023-PRESENT)")
-    print("=" * 80)
-    
-    # Step 1: Get historical data from free sources
-    if not args.no_historical:
-        print("\n[1/5] COLLECTING HISTORICAL DATA (2023+)")
+    try:
+        print("=" * 80)
+        print("AI SYCOPHANCY INCIDENT SCANNER (2023-PRESENT)")
+        print("=" * 80)
+        
+        # Step 1: Get historical data from free sources
+        if not args.no_historical:
+            print("\n[1/6] COLLECTING HISTORICAL DATA (2023+)")
+            print("-" * 80)
+            
+            # Google News historical archives (2023-2024)
+            google_historical = get_google_news_historical()
+            all_incidents.extend(google_historical)
+            
+            # arXiv research papers
+            arxiv_incidents = search_arxiv_papers()
+            all_incidents.extend(arxiv_incidents)
+            
+            # Hacker News historical
+            hn_incidents = get_hacker_news_historical()
+            all_incidents.extend(hn_incidents)
+        
+        # Step 2: Get recent data from RSS feeds
+        print("\n[2/6] COLLECTING RECENT DATA (RSS Feeds)")
         print("-" * 80)
         
-        # Google News historical archives (2023-2024)
-        google_historical = get_google_news_historical()
-        all_incidents.extend(google_historical)
+        # Combine all RSS feeds
+        all_feeds = RSS_FEEDS.copy()
         
-        # arXiv research papers
-        arxiv_incidents = search_arxiv_papers()
-        all_incidents.extend(arxiv_incidents)
+        # Add Google News searches
+        google_feeds = create_google_news_feeds(SEARCH_TERMS + HISTORICAL_SEARCHES)
+        all_feeds.update(google_feeds)
         
-        # Hacker News historical
-        hn_incidents = get_hacker_news_historical()
-        all_incidents.extend(hn_incidents)
+        print(f"  Total RSS feeds to scan: {len(all_feeds)}")
+        
+        rss_incidents = scan_rss_feeds(all_feeds, args.rss_days)
+        all_incidents.extend(rss_incidents)
+        
+        # Step 3: Remove duplicates
+        print("\n[3/6] DEDUPLICATING")
+        print("-" * 80)
+        print(f"  Total incidents before deduplication: {len(all_incidents)}")
+        
+        all_incidents = remove_duplicates(all_incidents)
+        
+        print(f"  Unique incidents: {len(all_incidents)}")
+        
+        # Step 4: Compute relevancy scores
+        print("\n[4/6] COMPUTING RELEVANCY SCORES")
+        all_incidents = compute_relevancy_scores(all_incidents, use_embeddings=not args.use_tfidf)
+
+        # Step 5: Add credibility scores
+        print("\n[5/6] COMPUTING CREDIBILITY SCORES")
+        print("-" * 80)
+        all_incidents = add_credibility_scores(all_incidents)
+        print(f"Added credibility scores to {len(all_incidents)} incidents")
+        
+        # Step 6: Save results
+        print("\n[6/6] SAVING RESULTS")
+        print("-" * 80)
+        
+        save_results(all_incidents, args.output)
     
-    # Step 2: Get recent data from RSS feeds
-    print("\n[2/5] COLLECTING RECENT DATA (RSS Feeds)")
-    print("-" * 80)
-    
-    # Combine all RSS feeds
-    all_feeds = RSS_FEEDS.copy()
-    
-    # Add Google News searches
-    google_feeds = create_google_news_feeds(SEARCH_TERMS + HISTORICAL_SEARCHES)
-    all_feeds.update(google_feeds)
-    
-    print(f"  Total RSS feeds to scan: {len(all_feeds)}")
-    
-    rss_incidents = scan_rss_feeds(all_feeds, args.rss_days)
-    all_incidents.extend(rss_incidents)
-    
-    # Step 3: Remove duplicates
-    print("\n[3/5] DEDUPLICATING")
-    print("-" * 80)
-    print(f"  Total incidents before deduplication: {len(all_incidents)}")
-    
-    all_incidents = remove_duplicates(all_incidents)
-    
-    print(f"  Unique incidents: {len(all_incidents)}")
-    
-    # Step 4: Save results
-    print("\n[4/5] SAVING RESULTS")
-    print("-" * 80)
-    
-    save_results(all_incidents, args.output)
+    finally:
+        # Restore stdout and close log file
+        if tee:
+            sys.stdout = tee.terminal
+            tee.close()
+            if args.log:
+                print(f"\n✓ Output saved to: {args.log}")
 
 
 if __name__ == "__main__":
