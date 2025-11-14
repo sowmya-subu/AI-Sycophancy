@@ -1,1 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>AI Incident Hub</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="page">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-top">
+        <div>
+          <h1 class="site-title">AI Incident Hub</h1>
+          <p class="site-subtitle">
+            A factual, curated overview of real-world incidents involving AI systems.
+            Search, filter, and explore how AI impacts safety, fairness, and society.
+          </p>
+        </div>
+        <nav class="nav">
+          <a href="#incidents">Incidents</a>
+          <a href="#methodology">Methodology</a>
+          <a href="#newsletter">Newsletter</a>
+        </nav>
+      </div>
+
+      <!-- Banner -->
+      <div class="banner">
+        <div class="banner-inner">
+          <div class="banner-image">
+            <span>AI image / illustration</span>
+          </div>
+          <div class="banner-text">
+            <h2>What this site covers</h2>
+            <p>
+              This hub tracks publicly reported AI-related incidents: system failures,
+              misuse, safety concerns, fairness issues, and more. Each card links back
+              to original sources.
+            </p>
+            <p>
+              The goal is to provide a clear, unbiased starting point for understanding
+              how AI behaves in the real world, beyond marketing claims.
+            </p>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main -->
+    <main class="main">
+      <div class="container">
+        <!-- Search -->
+        <section id="search" class="card">
+          <h2 class="section-title">Search incidents</h2>
+
+          <div class="search-row">
+            <input
+              id="search-input"
+              type="text"
+              class="input"
+              placeholder="Search by topic, keywords, source..."
+            />
+            <button id="search-button" class="button button-primary">Search</button>
+          </div>
+
+          <details class="advanced">
+            <summary>Advanced filters</summary>
+            <div class="advanced-grid">
+              <div class="field">
+                <label for="filter-category">Category</label>
+                <select id="filter-category" class="input">
+                  <option value="">Any</option>
+                  <option value="safety">Safety</option>
+                  <option value="bias">Bias &amp; Fairness</option>
+                  <option value="security">Security</option>
+                  <option value="reliability">Reliability</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="filter-severity">Severity</label>
+                <select id="filter-severity" class="input">
+                  <option value="">Any</option>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                  <option value="critical">Critical</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="filter-from">From (date)</label>
+                <input id="filter-from" type="date" class="input" />
+              </div>
+              <div class="field">
+                <label for="filter-to">To (date)</label>
+                <input id="filter-to" type="date" class="input" />
+              </div>
+            </div>
+          </details>
+        </section>
+
+        <!-- Incidents -->
+        <section id="incidents">
+          <div class="section-header">
+            <h2 class="section-title">Recent incidents</h2>
+            <p class="section-note">
+              Desktop: 3 rows × 2 columns (6 per page). Mobile: vertical scroll.
+            </p>
+          </div>
+
+          <div id="incident-grid" class="incident-grid">
+            <!-- Cards injected by script.js -->
+          </div>
+
+          <!-- Pagination for desktop -->
+          <div class="pagination">
+            <button id="prev-page" class="page-button">Previous</button>
+            <span id="page-info" class="page-info"></span>
+            <button id="next-page" class="page-button">Next</button>
+          </div>
+        </section>
+
+        <!-- Methodology -->
+        <section id="methodology" class="card">
+          <h2 class="section-title">Methodology &amp; limitations</h2>
+          <p>
+            This database is built from publicly available reports, news articles,
+            research papers, and organizational disclosures. Each incident is manually
+            reviewed before being added.
+          </p>
+          <p>
+            We aim to include incidents where AI systems had a meaningful impact on
+            people, safety, fairness, security, or critical infrastructure. Not every
+            minor bug or issue is included.
+          </p>
+          <p>
+            Limitations: coverage is incomplete and may lag behind breaking news.
+            Sources may carry their own biases. Summaries are simplified and may omit
+            nuance for brevity. Always review original sources for detailed context.
+          </p>
+        </section>
+
+        <!-- Newsletter -->
+        <section id="newsletter" class="newsletter card">
+          <div>
+            <h2 class="section-title">Weekly AI incident roundup</h2>
+            <p>
+              Join a weekly digest of new incidents, major trends, and updates to this
+              database.
+            </p>
+          </div>
+
+          <form id="newsletter-form" class="newsletter-form">
+            <input
+              id="newsletter-email"
+              type="email"
+              class="input"
+              placeholder="you@example.com"
+              required
+            />
+            <button type="submit" class="button button-secondary">
+              Join newsletter
+            </button>
+          </form>
+          <p id="newsletter-message" class="newsletter-message"></p>
+        </section>
+      </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <div class="container footer-inner">
+        <span>© <span id="year"></span> AI Incident Hub</span>
+        <span>
+          This site aims to be factual and non-partisan. Always verify with original sources.
+        </span>
+      </div>
+    </footer>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
 
