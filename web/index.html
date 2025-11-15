@@ -49,120 +49,155 @@
     <!-- Main -->
     <main class="main">
       <div class="container">
-        <!-- Search -->
-        <section id="search" class="card">
-          <h2 class="section-title">Search incidents</h2>
+              <!-- Search -->
+      <section id="search" class="card">
+        <h2 class="section-title">Search incidents</h2>
 
-          <div class="search-row">
-            <input
-              id="search-input"
-              type="text"
-              class="input"
-              placeholder="Search by topic, keywords, source..."
-            />
-            <button id="search-button" class="button button-primary">Search</button>
-          </div>
+        <div class="search-row">
+          <input
+            id="search-input"
+            type="text"
+            class="input"
+            placeholder="Search by topic, keywords, source..."
+          />
+          <button id="search-button" class="button button-primary">Search</button>
+        </div>
 
-          <details class="advanced">
-            <summary>Advanced filters</summary>
-            <div class="advanced-grid">
-              <div class="field">
-                <label for="filter-category">Category</label>
-                <select id="filter-category" class="input">
-                  <option value="">Any</option>
-                  <option value="safety">Safety</option>
-                  <option value="bias">Bias &amp; Fairness</option>
-                  <option value="security">Security</option>
-                  <option value="reliability">Reliability</option>
-                </select>
-              </div>
-              <div class="field">
-                <label for="filter-severity">Severity</label>
-                <select id="filter-severity" class="input">
-                  <option value="">Any</option>
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                  <option value="critical">Critical</option>
-                </select>
-              </div>
-              <div class="field">
-                <label for="filter-from">From (date)</label>
-                <input id="filter-from" type="date" class="input" />
-              </div>
-              <div class="field">
-                <label for="filter-to">To (date)</label>
-                <input id="filter-to" type="date" class="input" />
-              </div>
+        <details class="advanced">
+          <summary>Advanced filters</summary>
+          <div class="advanced-grid">
+            <div class="field">
+              <label for="filter-category">Category</label>
+              <select id="filter-category" class="input">
+                <option value="">Any</option>
+                <option value="safety">Safety</option>
+                <option value="bias">Bias &amp; Fairness</option>
+                <option value="security">Security</option>
+                <option value="reliability">Reliability</option>
+              </select>
             </div>
-          </details>
-        </section>
-
-        <!-- Incidents -->
-        <section id="incidents">
-          <div class="section-header">
-            <h2 class="section-title">  Recent incidents</h2>
-            <p class="section-note">
-              
-            </p>
+            <div class="field">
+              <label for="filter-severity">Severity</label>
+              <select id="filter-severity" class="input">
+                <option value="">Any</option>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="critical">Critical</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="filter-from">From (date)</label>
+              <input id="filter-from" type="date" class="input" />
+            </div>
+            <div class="field">
+              <label for="filter-to">To (date)</label>
+              <input id="filter-to" type="date" class="input" />
+            </div>
           </div>
+        </details>
+      </section>
 
-          <div id="incident-grid" class="incident-grid">
-            <!-- Cards injected by script.js -->
-          </div>
-
-          <!-- Pagination for desktop -->
-          <div class="pagination">
-            <button id="prev-page" class="page-button">Previous</button>
-            <span id="page-info" class="page-info"></span>
-            <button id="next-page" class="page-button">Next</button>
-          </div>
-        </section>
-
-        <!-- Methodology -->
-        <section id="methodology" class="card">
-          <h2 class="section-title">Methodology &amp; limitations</h2>
-          <p>
-            This database is built from publicly available reports, news articles,
-            research papers, and organizational disclosures.
+      <!-- Incidents -->
+      <section id="incidents">
+        <div class="section-header">
+          <h2 class="section-title">Recent incidents</h2>
+          <p class="section-note">
+            Desktop: 3 rows × 2 columns (6 per page). Mobile: vertical scroll.
           </p>
-          <p>
-            We include cases where AI manipulation had measurable consequences: reinforcing harmful beliefs, providing materially incorrect information, systematically favoring certain viewpoints, or demonstrating patterns that affect user trust and decision-making at scale.
-          </p> 
-          <p>
-            Not every instance of AI agreeing with a user is included—we focus on documented examples with clear evidence and meaningful impact.
-          </p>
-          <p>
-            Limitations: coverage is incomplete and may lag behind breaking news.
-            Sources may carry their own biases. Summaries are simplified and may omit
-            nuance for brevity. Always review original sources for detailed context.
-          </p>
-        </section>
+        </div>
 
-        <!-- Newsletter -->
-        <section id="newsletter" class="newsletter card">
-          <div>
-            <h2 class="section-title">Weekly AI incident roundup</h2>
+        <div id="incident-grid" class="incident-grid">
+          <!-- Cards injected by script.js -->
+        </div>
+
+        <div class="pagination">
+          <button id="prev-page" class="page-button">Previous</button>
+          <span id="page-info" class="page-info"></span>
+          <button id="next-page" class="page-button">Next</button>
+        </div>
+      </section>
+
+      <!-- Why Track AI Manipulation (collapsible, open by default) -->
+      <section id="why-track" class="card collapsible">
+        <details open>
+          <summary class="collapsible-header">
+            <span>Why Track AI Manipulation?</span>
+          </summary>
+          <div class="collapsible-body">
             <p>
-              Join a weekly digest of new incidents, major trends, and updates to this
-              database.
+              AI sycophancy—when systems tell users what they want to hear rather than what's
+              accurate—represents a fundamental tension in how AI is built. These systems are
+              trained to be helpful and to keep users engaged, which can directly conflict
+              with being truthful.
+            </p>
+            <p>
+              The consequences aren't abstract. When AI validates medical misinformation to
+              seem agreeable, shifts its reasoning based on perceived user politics, or
+              confirms conspiracy theories to avoid disagreement, it actively undermines
+              informed decision-making. Vulnerable populations—those seeking health advice,
+              educational support, or guidance during crisis—are particularly at risk.
+            </p>
+            <p>
+              Tracking these incidents matters because patterns reveal systemic problems.
+              Individual cases show us where AI fails. Collected evidence shows us how AI
+              fails, and points toward what needs to change in how these systems are designed,
+              trained, and deployed.
             </p>
           </div>
+        </details>
+      </section>
 
-          <form id="newsletter-form" class="newsletter-form">
-            <input
-              id="newsletter-email"
-              type="email"
-              class="input"
-              placeholder="you@example.com"
-              required
-            />
-            <button type="submit" class="button button-secondary">
-              Join newsletter
-            </button>
-          </form>
-          <p id="newsletter-message" class="newsletter-message"></p>
-        </section>
+      <!-- Newsletter -->
+      <section id="newsletter" class="newsletter card">
+        <div>
+          <h2 class="section-title">Weekly AI incident roundup</h2>
+          <p>
+            Join a weekly digest of new incidents, major trends, and updates to this
+            database.
+          </p>
+        </div>
+
+        <form id="newsletter-form" class="newsletter-form">
+          <input
+            id="newsletter-email"
+            type="email"
+            class="input"
+            placeholder="you@example.com"
+            required
+          />
+          <button type="submit" class="button button-secondary">
+            Join newsletter
+          </button>
+        </form>
+        <p id="newsletter-message" class="newsletter-message"></p>
+      </section>
+
+      <!-- Methodology (collapsible, collapsed by default) -->
+      <section id="methodology" class="card collapsible">
+        <details>
+          <summary class="collapsible-header">
+            <span>Methodology &amp; limitations</span>
+          </summary>
+          <div class="collapsible-body">
+            <p>
+              This database is built from publicly available reports, news articles,
+              research papers, and organizational disclosures. Each incident is manually
+              reviewed before being added.
+            </p>
+            <p>
+              We aim to include incidents where AI systems had a meaningful impact on
+              people, safety, fairness, security, or critical infrastructure. Not every
+              minor bug or issue is included.
+            </p>
+            <p>
+              Limitations: coverage is incomplete and may lag behind breaking news.
+              Sources may carry their own biases. Summaries are simplified and may omit
+              nuance for brevity. Always review original sources for detailed context.
+            </p>
+          </div>
+        </details>
+      </section>
       </div>
     </main>
 
