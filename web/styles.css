@@ -374,6 +374,49 @@ body {
   gap: 4px;
 }
 
+/* Collapsible sections (Why Track + Methodology) */
+.collapsible details {
+  margin: 0;
+}
+
+.collapsible-header {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-main);
+}
+
+/* Hide default marker */
+.collapsible-header::-webkit-details-marker {
+  display: none;
+}
+
+/* Arrow indicator */
+.collapsible-header::after {
+  content: "▾";
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.collapsible details[open] .collapsible-header::after {
+  content: "▴";
+}
+
+.collapsible-body {
+  margin-top: 12px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-muted);
+}
+
+.collapsible-body p {
+  margin: 0 0 14px;
+}
+
 /* Responsive */
 
 @media (min-width: 768px) {
