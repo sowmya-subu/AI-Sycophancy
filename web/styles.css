@@ -427,3 +427,10 @@ body {
     align-items: center;
   }
 }
+
+/* Increase spacing between all sections */
+section {
+  margin-top: 20px;
+  margin-bottom: 20px;
+}
+
