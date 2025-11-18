@@ -24,7 +24,7 @@ jobs:
       - name: Run sync script
         run: python scripts/sync_airtable_to_json.py
         env:
-          AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
+          AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_PAT }}
           AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
           AIRTABLE_TABLE_NAME: ${{ secrets.AIRTABLE_TABLE_NAME }}
           OUTPUT_JSON_PATH: "web/incidents.json"
