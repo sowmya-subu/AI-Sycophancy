@@ -40,6 +40,12 @@ def fetch_airtable_records() -> List[Dict[str, Any]]:
     Fetch all records from the Airtable table, handling pagination.
     Returns a list of Airtable record objects (with 'id' and 'fields').
     """
+    print("=== DEBUG: Starting Airtable fetch ===")
+    print(f"AIRTABLE_API_URL: {AIRTABLE_API_URL}")
+    print(f"AIRTABLE_BASE_ID: {AIRTABLE_BASE_ID}")
+    print(f"AIRTABLE_TABLE_NAME: {AIRTABLE_TABLE_NAME}")
+
+    
     if AIRTABLE_API_KEY.startswith("YOUR_") or AIRTABLE_BASE_ID.startswith("YOUR_"):
         raise RuntimeError("Please configure AIRTABLE_API_KEY and AIRTABLE_BASE_ID before running.")
 
