@@ -22,7 +22,7 @@ EXCLUDE_SOURCES = os.environ.get("EXCLUDE_SOURCES", "arXiv")
 EXCLUDE_SOURCES_LIST = [s.strip() for s in EXCLUDE_SOURCES.split(",") if s.strip()]
 
 # Local output path for the JSON file used by the website
-OUTPUT_JSON_PATH = os.environ.get("OUTPUT_JSON_PATH", "incidents.json")
+OUTPUT_JSON_PATH = os.environ.get("OUTPUT_JSON_PATH", "web/incidents.json")
 
 # ==============================
 # AIRTABLE HELPER
