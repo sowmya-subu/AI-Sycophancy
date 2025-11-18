@@ -9,9 +9,9 @@ from typing import List, Dict, Any, Optional
 # ==============================
 
 # Airtable API settings
-AIRTABLE_API_KEY = os.environ.get("AIRTABLE_API_KEY", "YOUR_AIRTABLE_API_KEY")
-AIRTABLE_BASE_ID = os.environ.get("AIRTABLE_BASE_ID", "YOUR_BASE_ID")
-AIRTABLE_TABLE_NAME = os.environ.get("AIRTABLE_TABLE_NAME", "ai_sycophancy_db")  # or your table name
+AIRTABLE_API_KEY = os.environ.get("AIRTABLE_API_KEY", "AIRTABLE_API_PAT")
+AIRTABLE_BASE_ID = os.environ.get("AIRTABLE_BASE_ID", "AIRTABLE_BASE_ID")
+AIRTABLE_TABLE_NAME = os.environ.get("AIRTABLE_TABLE_NAME", "AIRTABLE_TABLE_NAME")  # or your table name
 
 # Optional: view to use (e.g. "Grid view")
 AIRTABLE_VIEW = os.environ.get("AIRTABLE_VIEW", None)  # or set to "Published" etc.
