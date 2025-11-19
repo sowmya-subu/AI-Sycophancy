@@ -35,10 +35,14 @@ jobs:
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
 
+          # Make sure we’re on the correct branch
+          git checkout ${{ github.ref_name }}
+
+          # Only commit if file actually changed
           if git status --porcelain | grep "web/incidents.json"; then
             git add web/incidents.json
-            git commit -m "Update incidents.json"
-            git push
+            git commit -m "Update incidents.json from Airtable [skip ci]" || echo "Nothing to commit"
+            git push origin ${{ github.ref_name }}
           else
-            echo "No changes"
+            echo "No changes to web/incidents.json"
           fi
