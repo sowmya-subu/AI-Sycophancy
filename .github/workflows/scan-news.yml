@@ -1,0 +1,34 @@
+name: Run Scanner
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"   # every 6 hours (change as needed)
+  workflow_dispatch:        # allows manual trigger from Actions tab
+
+permissions:
+  contents: write           # allow auto-commit back to repo
+
+jobs:
+  run-scanner:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0    # full history needed for clean commits
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run scanner.py
+        run: |
+          python scripts/scanner.py
+
+   
