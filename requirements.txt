@@ -24,7 +24,7 @@ sentence-transformers>=2.2.0
 sumy>=0.11.0
 
 # Newspaper3k for article extraction
-newspaper3k>=0.6.0
+newspaper3k>=0.2.8
 
 # Install NLTK data for summarization
 nltk>=3.8.1
