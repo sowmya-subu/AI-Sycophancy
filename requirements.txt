@@ -21,7 +21,7 @@ sentence-transformers>=2.2.0
 # Note: torch will be installed automatically by sentence-transformers
 
 # Summarization library
-sumy>=0.14.0
+sumy>=0.11.0
 
 # Newspaper3k for article extraction
 newspaper3k>=0.6.0
