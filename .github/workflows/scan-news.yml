@@ -29,6 +29,6 @@ jobs:
 
       - name: Run scanner.py
         run: |
-          python scripts/scanner.py
+          python scanner.py
 
    
