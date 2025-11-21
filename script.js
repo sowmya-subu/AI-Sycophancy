@@ -10,7 +10,6 @@ const SAFE_DISPLAY_CONFIG = {
   requireReviewed: true,
   reviewStatusField: 'status', // or 'status' if you change schema
   reviewedValues: ['discovered'], //change to ['approved', 'reviewed'] 
-
   minRelevancyScore: 0.40, // default threshold 40.0, but relevancy score is between 0 and 1
   excludedSources: ['arXiv'], // configurable, exact match on source field
 };
