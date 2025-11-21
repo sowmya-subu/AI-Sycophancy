@@ -1,314 +1,659 @@
-// Simple mock data for now.
-// Later, we can swap this to fetch from a cloud DB / API.
-const INCIDENTS = [
-  {
-    id: 1,
-    title: 'Chatbot produced harmful medical advice',
-    summary:
-      'A consumer-facing chatbot provided incorrect medical instructions that conflicted with official health guidelines.',
-    url: 'https://example.com/incident-1',
-    publishedAt: '2025-01-10',
-    category: 'safety',
-    severity: 'high',
-    keywords: ['health', 'chatbot', 'safety'],
-  },
-  {
-    id: 2,
-    title: 'Recruiting model showed gender bias in ranking',
-    summary:
-      'An AI-based screening tool ranked candidates in a way that systematically favored one gender over another.',
-    url: 'https://example.com/incident-2',
-    publishedAt: '2025-01-05',
-    category: 'bias',
-    severity: 'medium',
-    keywords: ['hiring', 'bias', 'fairness'],
-  },
-  {
-    id: 3,
-    title: 'Image classifier mislabelled sensitive content',
-    summary:
-      'An image moderation model failed to correctly flag harmful imagery, leading to exposure on a public platform.',
-    url: 'https://example.com/incident-3',
-    publishedAt: '2024-12-18',
-    category: 'safety',
-    severity: 'critical',
-    keywords: ['content moderation', 'safety'],
-  },
-  {
-    id: 4,
-    title: 'LLM leaked private training data in output',
-    summary:
-      'Users were able to coax a language model into revealing snippets of its proprietary training text.',
-    url: 'https://example.com/incident-4',
-    publishedAt: '2024-12-02',
-    category: 'security',
-    severity: 'high',
-    keywords: ['security', 'privacy'],
-  },
-  {
-    id: 5,
-    title: 'Autonomous system behaved unpredictably in edge case',
-    summary:
-      'An automated control system failed during rare environmental conditions that were not represented in training.',
-    url: 'https://example.com/incident-5',
-    publishedAt: '2024-11-01',
-    category: 'reliability',
-    severity: 'medium',
-    keywords: ['reliability', 'edge cases'],
-  },
-  {
-    id: 6,
-    title: 'Misleading AI-generated news went viral',
-    summary:
-      'AI-generated articles with fabricated details were widely shared before being corrected.',
-    url: 'https://example.com/incident-6',
-    publishedAt: '2024-10-20',
-    category: 'safety',
-    severity: 'low',
-    keywords: ['misinformation', 'media'],
-  },
-  {
-    id: 7,
-    title: 'Credit scoring model disadvantaged specific region',
-    summary:
-      'A credit scoring model rated applicants from one region lower due to proxy features correlated with geography.',
-    url: 'https://example.com/incident-7',
-    publishedAt: '2024-09-15',
-    category: 'bias',
-    severity: 'high',
-    keywords: ['finance', 'bias'],
-  },
-  {
-    id: 8,
-    title: 'Support chatbot revealed other users’ tickets',
-    summary:
-      'A support bot surfaced ticket snippets belonging to other customers in multi-turn conversations.',
-    url: 'https://example.com/incident-8',
-    publishedAt: '2024-08-01',
-    category: 'security',
-    severity: 'critical',
-    keywords: ['support', 'security', 'privacy'],
-  },
-];
+// script.js
 
-// Simple pagination + search state in memory
+// -------------------------
+// Configuration
+// -------------------------
+const INCIDENTS_URL = 'incidents.json';
+
+const SAFE_DISPLAY_CONFIG = {
+  // Only show incidents that meet all these by default
+  requireReviewed: true,
+  reviewStatusField: 'review_status', // or 'status' if you change schema
+  reviewedValues: ['approved', 'reviewed'], // configurable
+
+  minRelevancyScore: 45.0, // default threshold
+  excludedSources: ['arXiv'], // configurable, exact match on source field
+};
+
+const UI_CONFIG = {
+  pageSize: 6,
+  mobileBreakpoint: 768,
+};
+
+// -------------------------
+// State
+// -------------------------
+let allIncidents = [];
+let safeIncidents = [];
+let filteredIncidents = [];
+
+let currentSort = 'date_desc'; // 'date_desc' | 'date_asc' | 'relevance_desc' | 'relevance_asc'
 let currentPage = 1;
-const PAGE_SIZE = 6;
+let mobileVisibleCount = UI_CONFIG.pageSize;
 
-function matchesSearch(incident, text, category, severity, fromDate, toDate) {
-  const q = text.trim().toLowerCase();
+let sourceOptions = [];
+let vulnerableOptions = [];
 
-  // Text match: title, summary, keywords
-  const inText =
-    !q ||
-    incident.title.toLowerCase().includes(q) ||
-    incident.summary.toLowerCase().includes(q) ||
-    incident.keywords.some((k) => k.toLowerCase().includes(q));
+// Cached DOM refs
+const incidentGrid = document.getElementById('incident-grid');
+const pageInfoEl = document.getElementById('page-info');
+const prevPageBtn = document.getElementById('prev-page');
+const nextPageBtn = document.getElementById('next-page');
+const searchInput = document.getElementById('search-input');
+const searchButton = document.getElementById('search-button');
+const fromDateInput = document.getElementById('filter-from');
+const toDateInput = document.getElementById('filter-to');
 
-  // Category
-  const inCategory = !category || incident.category === category;
+// Will be created dynamically
+let sortSelect = null;
+let sourceFilterSelect = null;
+let vulnerableFilterSelect = null;
 
-  // Severity
-  const inSeverity = !severity || incident.severity === severity;
-
-  // Date range
-  let inDateRange = true;
-  if (fromDate) {
-    inDateRange = inDateRange && incident.publishedAt >= fromDate;
-  }
-  if (toDate) {
-    inDateRange = inDateRange && incident.publishedAt <= toDate;
-  }
-
-  return inText && inCategory && inSeverity && inDateRange;
+// -------------------------
+// Helpers
+// -------------------------
+function isMobile() {
+  return window.innerWidth <= UI_CONFIG.mobileBreakpoint;
 }
 
-function getFilters() {
-  const searchInput = document.getElementById('search-input');
-  const categorySelect = document.getElementById('filter-category');
-  const severitySelect = document.getElementById('filter-severity');
-  const fromInput = document.getElementById('filter-from');
-  const toInput = document.getElementById('filter-to');
+function safeLower(str) {
+  return (str || '').toString().toLowerCase();
+}
+
+function parseDate(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function getRelevancy(incident) {
+  // Support both relevancy_score and relevance_score just in case
+  if (typeof incident.relevancy_score === 'number') return incident.relevancy_score;
+  if (typeof incident.relevance_score === 'number') return incident.relevance_score;
+  return null;
+}
+
+function passesSafeDisplay(incident) {
+  // Exclude sources
+  if (
+    SAFE_DISPLAY_CONFIG.excludedSources.length > 0 &&
+    SAFE_DISPLAY_CONFIG.excludedSources.includes(incident.source)
+  ) {
+    return false;
+  }
+
+  // Relevancy threshold
+  const score = getRelevancy(incident);
+  if (
+    SAFE_DISPLAY_CONFIG.minRelevancyScore != null &&
+    typeof score === 'number' &&
+    score < SAFE_DISPLAY_CONFIG.minRelevancyScore
+  ) {
+    return false;
+  }
+
+  // Review status
+  if (SAFE_DISPLAY_CONFIG.requireReviewed) {
+    const fieldName = SAFE_DISPLAY_CONFIG.reviewStatusField;
+    const statusValue = safeLower(incident[fieldName]);
+    if (!SAFE_DISPLAY_CONFIG.reviewedValues.map(safeLower).includes(statusValue)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function normalizeIncident(raw, index) {
+  const publication_date =
+    raw.publication_date || raw.date || raw.published_at || raw.published || null;
+
+  const relevancy_score = getRelevancy(raw);
 
   return {
-    text: searchInput ? searchInput.value : '',
-    category: categorySelect ? categorySelect.value : '',
-    severity: severitySelect ? severitySelect.value : '',
-    fromDate: fromInput ? fromInput.value : '',
-    toDate: toInput ? toInput.value : '',
+    id: raw.id || raw.slug || raw.url || `incident-${index}`,
+    title: raw.title || 'Untitled incident',
+    url: raw.url || '#',
+    source: raw.source || 'Unknown source',
+    summary: raw.summary || '',
+    publication_date,
+    vulnerable_populations:
+      raw.vulnerable_populations || raw.vulnerable_population || '',
+    review_status: raw.review_status || raw.status || '',
+    relevancy_score,
   };
 }
 
-function filterIncidents() {
-  const { text, category, severity, fromDate, toDate } = getFilters();
-  return INCIDENTS.filter((incident) =>
-    matchesSearch(incident, text, category, severity, fromDate, toDate)
-  ).sort((a, b) => (a.publishedAt < b.publishedAt ? 1 : -1));
+function showMessage(message, variant = 'info') {
+  if (!incidentGrid) return;
+
+  incidentGrid.innerHTML = '';
+  const div = document.createElement('div');
+  div.className = `incident-message incident-message-${variant}`;
+  div.textContent = message;
+  incidentGrid.appendChild(div);
+
+  if (pageInfoEl) pageInfoEl.textContent = '';
+  if (prevPageBtn) prevPageBtn.disabled = true;
+  if (nextPageBtn) nextPageBtn.disabled = true;
+}
+
+function updateFooterYear() {
+  const yearEl = document.getElementById('year');
+  if (yearEl) {
+    yearEl.textContent = new Date().getFullYear();
+  }
+}
+
+// -------------------------
+// Sort & Filter Logic
+// -------------------------
+function sortIncidents(list) {
+  const sorted = [...list];
+
+  sorted.sort((a, b) => {
+    if (currentSort === 'date_desc' || currentSort === 'date_asc') {
+      const da = parseDate(a.publication_date);
+      const db = parseDate(b.publication_date);
+
+      const ta = da ? da.getTime() : 0;
+      const tb = db ? db.getTime() : 0;
+
+      return currentSort === 'date_desc' ? tb - ta : ta - tb;
+    }
+
+    if (currentSort === 'relevance_desc' || currentSort === 'relevance_asc') {
+      const sa = getRelevancy(a) ?? -Infinity;
+      const sb = getRelevancy(b) ?? -Infinity;
+
+      return currentSort === 'relevance_desc' ? sb - sa : sa - sb;
+    }
+
+    return 0;
+  });
+
+  return sorted;
+}
+
+function applyFiltersAndSort() {
+  if (!safeIncidents.length) {
+    filteredIncidents = [];
+    renderIncidents();
+    return;
+  }
+
+  const query = safeLower(searchInput?.value || '');
+  const fromDate = parseDate(fromDateInput?.value);
+  const toDate = parseDate(toDateInput?.value);
+
+  const selectedSource = sourceFilterSelect ? sourceFilterSelect.value : '';
+  const selectedVuln = vulnerableFilterSelect
+    ? vulnerableFilterSelect.value
+    : '';
+
+  let list = safeIncidents.filter((incident) => {
+    // Search text
+    if (query) {
+      const text = [
+        incident.title,
+        incident.summary,
+        incident.source,
+        incident.vulnerable_populations,
+      ]
+        .map(safeLower)
+        .join(' ');
+
+      if (!text.includes(query)) return false;
+    }
+
+    // Date range
+    const d = parseDate(incident.publication_date);
+    if (fromDate && d && d < fromDate) return false;
+    if (toDate && d && d > toDate) return false;
+
+    // Source filter
+    if (selectedSource) {
+      if (incident.source !== selectedSource) return false;
+    }
+
+    // Vulnerable population filter
+    if (selectedVuln) {
+      const vp = (incident.vulnerable_populations || '')
+        .split(',')
+        .map((s) => s.trim());
+      if (!vp.includes(selectedVuln)) return false;
+    }
+
+    return true;
+  });
+
+  list = sortIncidents(list);
+  filteredIncidents = list;
+
+  // Reset paging
+  currentPage = 1;
+  mobileVisibleCount = UI_CONFIG.pageSize;
+
+  renderIncidents();
+}
+
+// -------------------------
+// Rendering
+// -------------------------
+function createIncidentCard(incident) {
+  const card = document.createElement('article');
+  card.className = 'incident-card';
+  card.tabIndex = 0;
+
+  const title = incident.title || 'Untitled incident';
+  const source = incident.source || 'Unknown source';
+  const pubDate = parseDate(incident.publication_date);
+  const dateText = pubDate
+    ? pubDate.toISOString().slice(0, 10)
+    : 'Date not available';
+  const summary = incident.summary || '';
+  const vuln = incident.vulnerable_populations || '';
+
+  card.innerHTML = `
+    <div class="incident-card-main">
+      <h3 class="incident-title">${title}</h3>
+      <div class="incident-meta">
+        <span class="incident-source">${source}</span>
+        <span class="incident-date">${dateText}</span>
+      </div>
+      <p class="incident-summary">
+        ${summary}
+      </p>
+      ${
+        vuln
+          ? `<p class="incident-vulnerable"><strong>Vulnerable populations:</strong> ${vuln}</p>`
+          : ''
+      }
+    </div>
+    <div class="incident-actions">
+      <a href="${incident.url}" target="_blank" rel="noopener noreferrer" class="button-link">
+        View article
+      </a>
+      <button type="button" class="button-ghost copy-link">Copy link</button>
+      <button type="button" class="button-ghost share-link">Share</button>
+    </div>
+  `;
+
+  // Entire card click takes you to article
+  card.addEventListener('click', (e) => {
+    // Avoid double-activating when clicking buttons
+    const target = e.target;
+    if (
+      target.closest('.copy-link') ||
+      target.closest('.share-link') ||
+      target.closest('.button-link')
+    ) {
+      return;
+    }
+    if (incident.url && incident.url !== '#') {
+      window.open(incident.url, '_blank', 'noopener,noreferrer');
+    }
+  });
+
+  // Copy link
+  const copyBtn = card.querySelector('.copy-link');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!incident.url) return;
+      navigator.clipboard
+        .writeText(incident.url)
+        .then(() => {
+          copyBtn.textContent = 'Copied';
+          setTimeout(() => (copyBtn.textContent = 'Copy link'), 1500);
+        })
+        .catch(() => {
+          alert('Unable to copy link. Please copy manually.');
+        });
+    });
+  }
+
+  // Share
+  const shareBtn = card.querySelector('.share-link');
+  if (shareBtn) {
+    shareBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!incident.url) return;
+
+      const shareData = {
+        title: incident.title || 'AI sycophancy incident',
+        text: incident.summary || '',
+        url: incident.url,
+      };
+
+      if (navigator.share) {
+        try {
+          await navigator.share(shareData);
+        } catch (err) {
+          // user cancelled, ignore
+        }
+      } else {
+        // Fallback to copy
+        navigator.clipboard
+          .writeText(incident.url)
+          .then(() => alert('Link copied to clipboard'))
+          .catch(() => alert('Unable to share. Please copy link manually.'));
+      }
+    });
+  }
+
+  return card;
 }
 
 function renderIncidents() {
-  const container = document.getElementById('incident-grid');
-  const pageInfo = document.getElementById('page-info');
-  if (!container) return;
+  if (!incidentGrid) return;
 
-  const all = filterIncidents();
-  const totalPages = Math.max(1, Math.ceil(all.length / PAGE_SIZE));
-  if (currentPage > totalPages) currentPage = totalPages;
+  incidentGrid.innerHTML = '';
 
-  const start = (currentPage - 1) * PAGE_SIZE;
-  const pageItems = all.slice(start, start + PAGE_SIZE);
+  if (!filteredIncidents || filteredIncidents.length === 0) {
+    showMessage('No sycophancy related incidents found', 'info');
+    return;
+  }
 
-  container.innerHTML = '';
+  if (isMobile()) {
+    // Lazy-load vertical list
+    const count = Math.min(mobileVisibleCount, filteredIncidents.length);
+    const items = filteredIncidents.slice(0, count);
 
-  if (pageItems.length === 0) {
-    container.innerHTML =
-      '<p class="section-note">No incidents match these filters yet.</p>';
+    items.forEach((incident) => {
+      const card = createIncidentCard(incident);
+      incidentGrid.appendChild(card);
+    });
+
+    if (pageInfoEl) {
+      pageInfoEl.textContent = `Showing ${count} of ${filteredIncidents.length}`;
+    }
+
+    if (prevPageBtn) {
+      prevPageBtn.style.display = 'none';
+    }
+    if (nextPageBtn) {
+      nextPageBtn.style.display = 'inline-flex';
+      nextPageBtn.textContent =
+        count < filteredIncidents.length ? 'Load more' : 'No more results';
+      nextPageBtn.disabled = count >= filteredIncidents.length;
+    }
   } else {
-    for (const incident of pageItems) {
-      const card = document.createElement('article');
-      card.className = 'card incident-card';
-      card.innerHTML = `
-        <div>
-          <h3 class="incident-title">${incident.title}</h3>
-          <p class="incident-summary">${incident.summary}</p>
-          <a href="${incident.url}" class="incident-link" target="_blank" rel="noreferrer">
-            View original article
-          </a>
-          <div class="tags">
-            ${incident.keywords
-              .map(
-                (tag) =>
-                  `<span class="tag">${tag.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>`
-              )
-              .join('')}
-          </div>
-        </div>
-        <div class="incident-footer">
-          <span class="incident-date">Published: ${incident.publishedAt}</span>
-          <div class="incident-actions">
-            <button class="link-button" data-id="${incident.id}" data-action="share">Share</button>
-            <button class="link-button" data-id="${incident.id}" data-action="copy">Copy link</button>
-          </div>
-        </div>
-      `;
-      container.appendChild(card);
+    // Desktop pagination
+    const totalPages = Math.max(
+      1,
+      Math.ceil(filteredIncidents.length / UI_CONFIG.pageSize)
+    );
+    if (currentPage > totalPages) currentPage = totalPages;
+
+    const startIdx = (currentPage - 1) * UI_CONFIG.pageSize;
+    const endIdx = startIdx + UI_CONFIG.pageSize;
+    const items = filteredIncidents.slice(startIdx, endIdx);
+
+    items.forEach((incident) => {
+      const card = createIncidentCard(incident);
+      incidentGrid.appendChild(card);
+    });
+
+    if (pageInfoEl) {
+      pageInfoEl.textContent = `Page ${currentPage} of ${totalPages}`;
     }
-  }
 
-  if (pageInfo) {
-    pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
-  }
-}
-
-function onSearch() {
-  currentPage = 1;
-  renderIncidents();
-}
-
-function onPageChange(delta) {
-  const all = filterIncidents();
-  const totalPages = Math.max(1, Math.ceil(all.length / PAGE_SIZE));
-  const next = currentPage + delta;
-  if (next >= 1 && next <= totalPages) {
-    currentPage = next;
-    renderIncidents();
-  }
-}
-
-function onIncidentAction(e) {
-  const target = e.target;
-  if (!(target instanceof HTMLElement)) return;
-  const action = target.getAttribute('data-action');
-  const id = target.getAttribute('data-id');
-  if (!action || !id) return;
-
-  const incident = INCIDENTS.find((x) => String(x.id) === id);
-  if (!incident) return;
-
-  const url = incident.url;
-
-  if (action === 'copy') {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(url).then(
-        () => {
-          alert('Link copied to clipboard.');
-        },
-        () => {
-          alert('Unable to copy link.');
-        }
-      );
-    } else {
-      alert('Clipboard not available in this browser.');
-    }
-  }
-
-  if (action === 'share') {
-    if (navigator.share) {
-      navigator.share({
-        title: incident.title,
-        text: 'AI incident from AI Incident Hub',
-        url,
-      }).catch(() => {
-        // user canceled; no-op
-      });
-    } else {
-      alert('Share is not supported on this device. You can copy the link instead.');
+    if (prevPageBtn && nextPageBtn) {
+      prevPageBtn.style.display = 'inline-flex';
+      nextPageBtn.style.display = 'inline-flex';
+      prevPageBtn.disabled = currentPage <= 1;
+      nextPageBtn.disabled = currentPage >= totalPages;
+      nextPageBtn.textContent = 'Next';
     }
   }
 }
 
-function setupListeners() {
-  const searchButton = document.getElementById('search-button');
-  const searchInput = document.getElementById('search-input');
-  const prevPage = document.getElementById('prev-page');
-  const nextPage = document.getElementById('next-page');
-  const incidentGrid = document.getElementById('incident-grid');
-  const newsletterForm = document.getElementById('newsletter-form');
-  const yearSpan = document.getElementById('year');
+// -------------------------
+// UI wiring (sort + filters)
+// -------------------------
+function initSortControl() {
+  const sectionHeader = document.querySelector('#incidents .section-header');
+  if (!sectionHeader) return;
 
-  if (yearSpan) {
-    yearSpan.textContent = new Date().getFullYear().toString();
+  const wrapper = document.createElement('div');
+  wrapper.className = 'sort-wrapper';
+
+  const label = document.createElement('label');
+  label.setAttribute('for', 'sort-by');
+  label.textContent = 'Sort by';
+
+  const select = document.createElement('select');
+  select.id = 'sort-by';
+  select.className = 'input sort-select';
+  select.innerHTML = `
+    <option value="date_desc">Most recent</option>
+    <option value="date_asc">Oldest first</option>
+    <option value="relevance_desc">Highest relevance</option>
+    <option value="relevance_asc">Lowest relevance</option>
+  `;
+
+  wrapper.appendChild(label);
+  wrapper.appendChild(select);
+  sectionHeader.appendChild(wrapper);
+
+  sortSelect = select;
+  sortSelect.addEventListener('change', () => {
+    currentSort = sortSelect.value;
+    applyFiltersAndSort();
+  });
+}
+
+function initDynamicFilters() {
+  const advancedGrid = document.querySelector('#search .advanced-grid');
+  if (!advancedGrid) return;
+
+  // Build options from safeIncidents
+  const sources = new Set();
+  const vulns = new Set();
+
+  safeIncidents.forEach((inc) => {
+    if (inc.source) sources.add(inc.source);
+    if (inc.vulnerable_populations) {
+      inc.vulnerable_populations
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .forEach((v) => vulns.add(v));
+    }
+  });
+
+  sourceOptions = Array.from(sources).sort();
+  vulnerableOptions = Array.from(vulns).sort();
+
+  // Source filter
+  if (sourceOptions.length > 0) {
+    const field = document.createElement('div');
+    field.className = 'field';
+
+    const label = document.createElement('label');
+    label.setAttribute('for', 'filter-source');
+    label.textContent = 'Source';
+
+    const select = document.createElement('select');
+    select.id = 'filter-source';
+    select.className = 'input';
+    select.innerHTML =
+      '<option value="">Any</option>' +
+      sourceOptions.map((s) => `<option value="${s}">${s}</option>`).join('');
+
+    field.appendChild(label);
+    field.appendChild(select);
+    advancedGrid.appendChild(field);
+
+    sourceFilterSelect = select;
+    sourceFilterSelect.addEventListener('change', applyFiltersAndSort);
   }
 
-  if (searchButton) searchButton.addEventListener('click', onSearch);
-  if (searchInput) {
-    searchInput.addEventListener('keypress', (e) => {
+  // Vulnerable population filter
+  if (vulnerableOptions.length > 0) {
+    const field = document.createElement('div');
+    field.className = 'field';
+
+    const label = document.createElement('label');
+    label.setAttribute('for', 'filter-vulnerable');
+    label.textContent = 'Vulnerable population';
+
+    const select = document.createElement('select');
+    select.id = 'filter-vulnerable';
+    select.className = 'input';
+    select.innerHTML =
+      '<option value="">Any</option>' +
+      vulnerableOptions.map((v) => `<option value="${v}">${v}</option>`).join('');
+
+    field.appendChild(label);
+    field.appendChild(select);
+    advancedGrid.appendChild(field);
+
+    vulnerableFilterSelect = select;
+    vulnerableFilterSelect.addEventListener('change', applyFiltersAndSort);
+  }
+}
+
+// -------------------------
+// Event wiring
+// -------------------------
+function initEvents() {
+  if (searchButton && searchInput) {
+    searchButton.addEventListener('click', (e) => {
+      e.preventDefault();
+      applyFiltersAndSort();
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
-        onSearch();
+        applyFiltersAndSort();
       }
     });
   }
 
-  if (prevPage) prevPage.addEventListener('click', () => onPageChange(-1));
-  if (nextPage) nextPage.addEventListener('click', () => onPageChange(1));
-
-  if (incidentGrid) {
-    incidentGrid.addEventListener('click', onIncidentAction);
+  if (fromDateInput) {
+    fromDateInput.addEventListener('change', applyFiltersAndSort);
   }
 
-  if (newsletterForm) {
+  if (toDateInput) {
+    toDateInput.addEventListener('change', applyFiltersAndSort);
+  }
+
+  if (prevPageBtn) {
+    prevPageBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (isMobile()) return; // no prev on mobile
+      if (currentPage > 1) {
+        currentPage -= 1;
+        renderIncidents();
+      }
+    });
+  }
+
+  if (nextPageBtn) {
+    nextPageBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (isMobile()) {
+        // Lazy-load more
+        if (mobileVisibleCount < filteredIncidents.length) {
+          mobileVisibleCount += UI_CONFIG.pageSize;
+          renderIncidents();
+        }
+      } else {
+        // Desktop pagination
+        const totalPages = Math.max(
+          1,
+          Math.ceil(filteredIncidents.length / UI_CONFIG.pageSize)
+        );
+        if (currentPage < totalPages) {
+          currentPage += 1;
+          renderIncidents();
+        }
+      }
+    });
+  }
+
+  window.addEventListener('resize', () => {
+    // Reset paging mode when crossing breakpoint
+    currentPage = 1;
+    mobileVisibleCount = UI_CONFIG.pageSize;
+    renderIncidents();
+  });
+
+  // Newsletter dummy handler to prevent page reload
+  const newsletterForm = document.getElementById('newsletter-form');
+  const newsletterMsg = document.getElementById('newsletter-message');
+  if (newsletterForm && newsletterMsg) {
     newsletterForm.addEventListener('submit', (e) => {
       e.preventDefault();
       const emailInput = document.getElementById('newsletter-email');
-      const message = document.getElementById('newsletter-message');
-      if (!emailInput || !message) return;
-
-      const value = emailInput.value.trim();
-      if (!value) {
-        message.textContent = 'Please enter a valid email.';
-        return;
-      }
-      // For now, just show a local confirmation.
-      // Later, we’ll wire this to a real backend endpoint.
-      message.textContent = 'Thanks for subscribing! (This is a local demo for now.)';
-      emailInput.value = '';
+      const email = emailInput?.value || '';
+      if (!email) return;
+      newsletterMsg.textContent =
+        'Thanks for your interest. Newsletter functionality is not yet implemented.';
+      newsletterForm.reset();
     });
   }
-
-  renderIncidents();
 }
 
-// Init on DOM ready
-document.addEventListener('DOMContentLoaded', setupListeners);
+// -------------------------
+// Initialization
+// -------------------------
+async function loadIncidents() {
+  if (!incidentGrid) return;
 
+  showMessage('Loading incidents…', 'info');
+
+  try {
+    const res = await fetch(INCIDENTS_URL, { cache: 'no-store' });
+    if (!res.ok) {
+      if (res.status === 404) {
+        showMessage('No sycophancy related incidents found', 'info');
+        return;
+      }
+      throw new Error(`HTTP ${res.status}`);
+    }
+
+    const data = await res.json();
+
+    if (!Array.isArray(data) || data.length === 0) {
+      showMessage('No sycophancy related incidents found', 'info');
+      return;
+    }
+
+    allIncidents = data.map(normalizeIncident);
+    safeIncidents = allIncidents.filter(passesSafeDisplay);
+
+    if (safeIncidents.length === 0) {
+      showMessage(
+        'No incidents passed the current safety filters. Adjust thresholds or review status.',
+        'info'
+      );
+      return;
+    }
+
+    // Initialize sort & filters now that we have data
+    initSortControl();
+    initDynamicFilters();
+
+    // Default sort by date descending (most recent)
+    currentSort = 'date_desc';
+    filteredIncidents = sortIncidents(safeIncidents);
+
+    renderIncidents();
+  } catch (err) {
+    console.error('Error loading incidents:', err);
+    showMessage(
+      'Unable to load incidents at this time. Please try again later.',
+      'error'
+    );
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  updateFooterYear();
+  initEvents();
+  loadIncidents();
+});
