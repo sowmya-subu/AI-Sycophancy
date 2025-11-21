@@ -1,0 +1,75 @@
+================================================================================
+SUMMARY STATISTICS (2023-Present)
+Generated: 2025-11-21 21:04:18
+================================================================================
+
+Total unique incidents: 1017
+
+Incidents by Year:
+  - 2023: 1
+  - 2024: 1
+  - 2025: 935
+
+2025 by Month:
+  - April: 7
+  - May: 5
+  - June: 2
+  - July: 4
+  - August: 3
+  - October: 13
+  - November: 901
+
+Vulnerable Populations Mentioned:
+  - elderly: 115
+  - medical: 87
+  - minors: 44
+  - mental_health: 29
+
+Top Sources:
+  - arXiv: 901
+  - Google News: AI sycophancy: 25
+  - Google News: AI flattery issue: 18
+  - Hacker News: 17
+  - Google News: sycophantic AI: 12
+  - Google News: AI sycophancy 2023: 10
+  - Google News: AI sycophancy 2024: 9
+  - Google News: AI chatbot dangerous advice: 7
+  - Google News: Gemini AI flattery: 5
+  - Google News: Claude sycophancy: 2
+  - Google News: AI validation delusion: 2
+  - Google News: AI agrees with everything: 2
+  - Google News: AI sycophancy research 2023: 1
+  - Google News: AI therapy problem: 1
+  - Google News: Anthropic sycophancy study: 1
+
+Date Range: 2023-12-14 to 2025-11-20
+
+Relevancy Score Statistics:
+  Average: 0.1764
+  Median: 0.1592
+  Top 10 scores: 0.7580, 0.7453, 0.6979, 0.6979, 0.6942, 0.6843, 0.6810, 0.6773, 0.6659, 0.6585
+  Articles sorted by relevancy score (highest first)
+
+Credibility Score Statistics:
+  Average: 0.1526
+  Median: 0.1533
+  Top 10 scores: 0.5967, 0.5073, 0.5069, 0.4785, 0.4687, 0.4684, 0.4590, 0.4548, 0.4521, 0.4423
+
+Credibility by Source Tier:
+  tier_1 (Academic research papers): 901 articles, avg credibility: 0.1406
+  tier_3 (Community discussions and forums): 17 articles, avg credibility: 0.3293
+  tier_4 (News aggregators and other sources): 99 articles, avg credibility: 0.2318
+
+Research papers with DOI: 25
+  Average credibility with DOI: 0.1978
+  Average credibility without DOI: 0.1390
+  Articles sorted by credibility score (highest first)
+
+================================================================================
+
+Next Steps:
+1. Review the JSON file and validate each incident
+2. Fill in 'severity' field (low/medium/high/critical)
+3. Update 'status' field as you review
+4. Add notes in 'reviewer_notes' field
+================================================================================
