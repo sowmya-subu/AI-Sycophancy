@@ -1477,11 +1477,31 @@ def save_results(incidents: List[Dict], output_file: str = 'sycophancy_incidents
     print("=" * 80)
 
 
-def save_results_json(incidents: List[Dict], output_file: str = 'sycophancy_incidents_2023_present.json'):
-    """Save incidents to JSON with summary statistics"""
+import subprocess
+from datetime import datetime
+from pathlib import Path
+
+def save_results_json(incidents: List[Dict], 
+                     output_file: str = 'sycophancy_incidents.json',
+                     stats_file: str = 'statistics.txt',
+                     commit_to_github: bool = True, 
+                     allow_empty: bool = False):
+    """Save incidents to JSON and statistics to text file, then commit both to GitHub
+    
+    Args:
+        incidents: List of incident dictionaries to save
+        output_file: Path to output JSON file for raw data
+        stats_file: Path to output text file for statistics
+        commit_to_github: Whether to commit and push to GitHub
+        allow_empty: Whether to save an empty file if no incidents found
+    """
     if not incidents:
-        print("\n No incidents found!")
-        return
+        if not allow_empty:
+            print("\n No incidents found!")
+            print("  (Use allow_empty=True to save an empty file)")
+            return
+        else:
+            print("\n No incidents found - saving empty file as requested")
     
     df = pd.DataFrame(incidents)
     
@@ -1497,103 +1517,177 @@ def save_results_json(incidents: List[Dict], output_file: str = 'sycophancy_inci
             df = df.sort_values(['relevancy_score', 'publication_date'], ascending=[False, False])
     
     # Convert datetime to string for JSON serialization
-    df['publication_date'] = df['publication_date'].dt.strftime('%Y-%m-%d')
+    if not df.empty:
+        df['publication_date'] = df['publication_date'].dt.strftime('%Y-%m-%d')
     
-    # Save to JSON
+    # Save to JSON (overwrites existing file)
     df.to_json(output_file, orient='records', indent=2, date_format='iso')
-    
     print(f"\n✓ Saved {len(incidents)} incidents to {output_file}")
     
     # Convert publication_date back to datetime for statistics
     df['publication_date'] = pd.to_datetime(df['publication_date'], errors='coerce')
     
-    # Summary statistics
-    print("\n" + "=" * 80)
-    print("SUMMARY STATISTICS (2023-Present)")
-    print("=" * 80)
-    print(f"\nTotal unique incidents: {len(incidents)}")
+    # Generate statistics and save to file
+    stats_content = generate_statistics(df, incidents)
+    
+    with open(stats_file, 'w', encoding='utf-8') as f:
+        f.write(stats_content)
+    
+    print(f"✓ Saved statistics to {stats_file}")
+    
+    # Print statistics to console as well
+    print(stats_content)
+    
+    # Commit to GitHub if requested
+    if commit_to_github:
+        try:
+            print("\n" + "=" * 80)
+            print("COMMITTING TO GITHUB")
+            print("=" * 80)
+            
+            # Check if there are actual changes to commit
+            status_result = subprocess.run(['git', 'status', '--porcelain', output_file, stats_file], 
+                                         capture_output=True, text=True, check=True)
+            
+            if not status_result.stdout.strip():
+                print(f"✓ No changes detected - skipping commit")
+                print("=" * 80)
+                return
+            
+            # Add both files
+            subprocess.run(['git', 'add', output_file, stats_file], check=True)
+            print(f"✓ Added {output_file} and {stats_file} to git")
+            
+            # Create commit message with timestamp and incident count
+            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
+            if len(incidents) == 0:
+                commit_message = f"Clear incidents data (0 incidents) - {timestamp}"
+            else:
+                commit_message = f"Update incidents data: {len(incidents)} incidents ({timestamp})"
+            
+            subprocess.run(['git', 'commit', '-m', commit_message], check=True)
+            print(f"✓ Committed with message: {commit_message}")
+            
+            # Push to remote
+            subprocess.run(['git', 'push'], check=True)
+            print("✓ Pushed to GitHub remote")
+            
+            print("=" * 80)
+            
+        except subprocess.CalledProcessError as e:
+            print(f"\n⚠ Warning: Failed to commit to GitHub: {e}")
+            print("  You may need to commit manually or check your git configuration")
+        except FileNotFoundError:
+            print("\n⚠ Warning: Git not found. Please install git or commit manually")
+
+
+def generate_statistics(df: pd.DataFrame, incidents: List[Dict]) -> str:
+    """Generate statistics report as a string
+    
+    Args:
+        df: DataFrame with incidents (publication_date should be datetime)
+        incidents: Original list of incidents
+        
+    Returns:
+        Formatted statistics report as string
+    """
+    lines = []
+    
+    # Only show statistics if we have incidents
+    if not incidents:
+        lines.append("No statistics to display (empty dataset)")
+        return "\n".join(lines)
+    
+    # Header
+    lines.append("=" * 80)
+    lines.append("SUMMARY STATISTICS (2023-Present)")
+    lines.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append("=" * 80)
+    lines.append(f"\nTotal unique incidents: {len(incidents)}")
     
     # Timeline breakdown
-    print("\nIncidents by Year:")
+    lines.append("\nIncidents by Year:")
     year_counts = df[df['publication_date'].notna()].groupby(df['publication_date'].dt.year).size()
     for year, count in year_counts.items():
-        print(f"  - {int(year)}: {count}")
+        lines.append(f"  - {int(year)}: {count}")
     
     # Monthly breakdown for 2025
     if 2025 in year_counts.index:
-        print("\n2025 by Month:")
+        lines.append("\n2025 by Month:")
         df_2025 = df[df['publication_date'].dt.year == 2025]
         month_counts = df_2025.groupby(df_2025['publication_date'].dt.month).size()
         for month, count in month_counts.items():
             month_name = datetime(2025, int(month), 1).strftime('%B')
-            print(f"  - {month_name}: {count}")
+            lines.append(f"  - {month_name}: {count}")
     
     # Vulnerable populations
     if df['vulnerable_populations'].any():
-        print("\nVulnerable Populations Mentioned:")
+        lines.append("\nVulnerable Populations Mentioned:")
         pop_counts = df['vulnerable_populations'].str.split(', ').explode().value_counts()
         for pop, count in pop_counts.head(10).items():
             if pop:
-                print(f"  - {pop}: {count}")
+                lines.append(f"  - {pop}: {count}")
     
     # Top sources
-    print("\nTop Sources:")
+    lines.append("\nTop Sources:")
     for source, count in df['source'].value_counts().head(15).items():
-        print(f"  - {source}: {count}")
+        lines.append(f"  - {source}: {count}")
     
     # Date range
     valid_dates = df[df['publication_date'].notna()]['publication_date']
     if not valid_dates.empty:
         earliest = valid_dates.min()
         latest = valid_dates.max()
-        print(f"\nDate Range: {earliest.strftime('%Y-%m-%d')} to {latest.strftime('%Y-%m-%d')}")
+        lines.append(f"\nDate Range: {earliest.strftime('%Y-%m-%d')} to {latest.strftime('%Y-%m-%d')}")
     
     # Relevancy score statistics
     if 'relevancy_score' in df.columns:
-        print("\nRelevancy Score Statistics:")
-        print(f"  Average: {df['relevancy_score'].mean():.4f}")
-        print(f"  Median: {df['relevancy_score'].median():.4f}")
-        print(f"  Top 10 scores: {', '.join([f'{s:.4f}' for s in df['relevancy_score'].nlargest(10).values])}")
-        print(f"  Articles sorted by relevancy score (highest first)")
+        lines.append("\nRelevancy Score Statistics:")
+        lines.append(f"  Average: {df['relevancy_score'].mean():.4f}")
+        lines.append(f"  Median: {df['relevancy_score'].median():.4f}")
+        lines.append(f"  Top 10 scores: {', '.join([f'{s:.4f}' for s in df['relevancy_score'].nlargest(10).values])}")
+        lines.append(f"  Articles sorted by relevancy score (highest first)")
     
     # Credibility score statistics
     if 'credibility_score' in df.columns:
-        print("\nCredibility Score Statistics:")
-        print(f"  Average: {df['credibility_score'].mean():.4f}")
-        print(f"  Median: {df['credibility_score'].median():.4f}")
-        print(f"  Top 10 scores: {', '.join([f'{s:.4f}' for s in df['credibility_score'].nlargest(10).values])}")
+        lines.append("\nCredibility Score Statistics:")
+        lines.append(f"  Average: {df['credibility_score'].mean():.4f}")
+        lines.append(f"  Median: {df['credibility_score'].median():.4f}")
+        lines.append(f"  Top 10 scores: {', '.join([f'{s:.4f}' for s in df['credibility_score'].nlargest(10).values])}")
     
         # Breakdown by source tier
-        print("\nCredibility by Source Tier:")
+        lines.append("\nCredibility by Source Tier:")
         for tier in ['tier_1', 'tier_2', 'tier_3', 'tier_4']:
             tier_df = df[df['source_tier'] == tier]
             if not tier_df.empty:
                 avg_cred = tier_df['credibility_score'].mean()
                 count = len(tier_df)
                 tier_desc = SOURCE_TIERS[tier]['description']
-                print(f"  {tier} ({tier_desc}): {count} articles, avg credibility: {avg_cred:.4f}")
+                lines.append(f"  {tier} ({tier_desc}): {count} articles, avg credibility: {avg_cred:.4f}")
         
         # DOI statistics
         if 'has_doi' in df.columns:
             doi_count = df['has_doi'].sum()
-            print(f"\nResearch papers with DOI: {doi_count}")
+            lines.append(f"\nResearch papers with DOI: {doi_count}")
             if doi_count > 0:
                 doi_avg_cred = df[df['has_doi']]['credibility_score'].mean()
                 no_doi_avg_cred = df[~df['has_doi'] & (df['source'] == 'arXiv')]['credibility_score'].mean()
-                print(f"  Average credibility with DOI: {doi_avg_cred:.4f}")
+                lines.append(f"  Average credibility with DOI: {doi_avg_cred:.4f}")
                 if not pd.isna(no_doi_avg_cred):
-                    print(f"  Average credibility without DOI: {no_doi_avg_cred:.4f}")
+                    lines.append(f"  Average credibility without DOI: {no_doi_avg_cred:.4f}")
         
-    print(f"  Articles sorted by credibility score (highest first)")
+    lines.append(f"  Articles sorted by credibility score (highest first)")
     
-    print("\n" + "=" * 80)
-    print("\nNext Steps:")
-    print("1. Review the JSON file and validate each incident")
-    print("2. Fill in 'severity' field (low/medium/high/critical)")
-    print("3. Update 'status' field as you review")
-    print("4. Add notes in 'reviewer_notes' field")
-    print("=" * 80)
-
+    lines.append("\n" + "=" * 80)
+    lines.append("\nNext Steps:")
+    lines.append("1. Review the JSON file and validate each incident")
+    lines.append("2. Fill in 'severity' field (low/medium/high/critical)")
+    lines.append("3. Update 'status' field as you review")
+    lines.append("4. Add notes in 'reviewer_notes' field")
+    lines.append("=" * 80)
+    
+    return "\n".join(lines)
 
 def main():
     import argparse
