@@ -32,6 +32,9 @@ import arxiv
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
+import subprocess
+from pathlib import Path
+
 
 # Try to import sentence transformers for semantic embeddings
 try:
@@ -1477,13 +1480,9 @@ def save_results(incidents: List[Dict], output_file: str = 'sycophancy_incidents
     print("=" * 80)
 
 
-import subprocess
-from datetime import datetime
-from pathlib import Path
-
 def save_results_json(incidents: List[Dict], 
-                     output_file: str = 'sycophancy_incidents.json',
-                     stats_file: str = 'statistics.txt',
+                     output_file: str = 'incidents.json',
+                     stats_file: str = 'sycophancy_incidents_2023_present_stats.txt',
                      commit_to_github: bool = True, 
                      allow_empty: bool = False):
     """Save incidents to JSON and statistics to text file, then commit both to GitHub
@@ -1700,7 +1699,7 @@ Examples:
   # Full historical scan (2023-present)
   python scanner.py
   
-  # Custom output file
+  # Custom CSV output file
   python scanner.py --output my_incidents.csv
   
   # Save console output to log file
@@ -1748,6 +1747,16 @@ Examples:
     
     args = parser.parse_args()
     
+    # Derive stats filename from the CSV output name
+    output_path = Path(args.output)
+    base_stem = output_path.stem  # e.g. "sycophancy_incidents_2023_present"
+    
+    # For GitHub Pages / static site:
+    #   - JSON lives next to index.html as "incidents.json"
+    #   - stats file lives in the repo root as "<base>_stats.txt"
+    json_output = Path("incidents.json")
+    stats_output = Path(f"{base_stem}_stats.txt")
+    
     # Set up logging if requested
     tee = None
     if args.log:
@@ -1767,15 +1776,12 @@ Examples:
             print("\n[1/6] COLLECTING HISTORICAL DATA (2023+)")
             print("-" * 80)
             
-            # Google News historical archives (2023-2024)
             google_historical = get_google_news_historical()
             all_incidents.extend(google_historical)
             
-            # arXiv research papers
             arxiv_incidents = search_arxiv_papers()
             all_incidents.extend(arxiv_incidents)
             
-            # Hacker News historical
             hn_incidents = get_hacker_news_historical()
             all_incidents.extend(hn_incidents)
         
@@ -1783,10 +1789,7 @@ Examples:
         print("\n[2/6] COLLECTING RECENT DATA (RSS Feeds)")
         print("-" * 80)
         
-        # Combine all RSS feeds
         all_feeds = RSS_FEEDS.copy()
-        
-        # Add Google News searches
         google_feeds = create_google_news_feeds(SEARCH_TERMS + HISTORICAL_SEARCHES)
         all_feeds.update(google_feeds)
         
@@ -1806,7 +1809,10 @@ Examples:
         
         # Step 4: Compute relevancy scores
         print("\n[4/6] COMPUTING RELEVANCY SCORES")
-        all_incidents = compute_relevancy_scores(all_incidents, use_embeddings=not args.use_tfidf)
+        all_incidents = compute_relevancy_scores(
+            all_incidents,
+            use_embeddings=not args.use_tfidf
+        )
 
         # Step 5: Add credibility scores
         print("\n[5/6] COMPUTING CREDIBILITY SCORES")
@@ -1818,11 +1824,18 @@ Examples:
         print("\n[6/6] SAVING RESULTS")
         print("-" * 80)
         
+        # 1) CSV output (as before)
         save_results(all_incidents, args.output)
-        save_results_json(all_incidents, args.output)
+        
+        # 2) JSON + stats output (for GitHub Pages + analytics)
+        save_results_json(
+            all_incidents,
+            output_file=str(json_output),
+            stats_file=str(stats_output),
+            commit_to_github=True,
+        )
     
     finally:
-        # Restore stdout and close log file
         if tee:
             sys.stdout = tee.terminal
             tee.close()
