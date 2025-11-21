@@ -1368,218 +1368,80 @@ def add_credibility_scores(incidents: List[Dict]) -> List[Dict]:
     
     return incidents
 
-def save_results(incidents: List[Dict], output_file: str = 'sycophancy_incidents_2023_present.csv'):
-    """Save incidents to CSV with summary statistics"""
-    if not incidents:
-        print("\n No incidents found!")
-        return
-    
-    df = pd.DataFrame(incidents)
-    
-    # Convert publication_date to datetime
-    df['publication_date'] = pd.to_datetime(df['publication_date'], errors='coerce')
-    
-    # Sort by relevancy_score (highest first), then by publication_date (newest first)
-    if 'relevancy_score' in df.columns:
-        if 'credibility_score' in df.columns:
-            df = df.sort_values(['credibility_score', 'relevancy_score', 'publication_date'], 
-                                ascending=[False, False, False])
-        else:
-            df = df.sort_values(['relevancy_score', 'publication_date'], ascending=[False, False])
-    
-    # Save to CSV
-    df.to_csv(output_file, index=False)
-    
-    print(f"\n✓ Saved {len(incidents)} incidents to {output_file}")
-    
-    # Summary statistics
-    print("\n" + "=" * 80)
-    print("SUMMARY STATISTICS (2023-Present)")
-    print("=" * 80)
-    print(f"\nTotal unique incidents: {len(incidents)}")
-    
-    # Timeline breakdown
-    print("\nIncidents by Year:")
-    year_counts = df[df['publication_date'].notna()].groupby(df['publication_date'].dt.year).size()
-    for year, count in year_counts.items():
-        print(f"  - {int(year)}: {count}")
-    
-    # Monthly breakdown for 2025
-    if 2025 in year_counts.index:
-        print("\n2025 by Month:")
-        df_2025 = df[df['publication_date'].dt.year == 2025]
-        month_counts = df_2025.groupby(df_2025['publication_date'].dt.month).size()
-        for month, count in month_counts.items():
-            month_name = datetime(2025, int(month), 1).strftime('%B')
-            print(f"  - {month_name}: {count}")
-    
-    # Vulnerable populations
-    if df['vulnerable_populations'].any():
-        print("\nVulnerable Populations Mentioned:")
-        pop_counts = df['vulnerable_populations'].str.split(', ').explode().value_counts()
-        for pop, count in pop_counts.head(10).items():
-            if pop:
-                print(f"  - {pop}: {count}")
-    
-    # Top sources
-    print("\nTop Sources:")
-    for source, count in df['source'].value_counts().head(15).items():
-        print(f"  - {source}: {count}")
-    
-    # Date range
-    valid_dates = df[df['publication_date'].notna()]['publication_date']
-    if not valid_dates.empty:
-        earliest = valid_dates.min()
-        latest = valid_dates.max()
-        print(f"\nDate Range: {earliest.strftime('%Y-%m-%d')} to {latest.strftime('%Y-%m-%d')}")
-    
-    # Relevancy score statistics
-    if 'relevancy_score' in df.columns:
-        print("\nRelevancy Score Statistics:")
-        print(f"  Average: {df['relevancy_score'].mean():.4f}")
-        print(f"  Median: {df['relevancy_score'].median():.4f}")
-        print(f"  Top 10 scores: {', '.join([f'{s:.4f}' for s in df['relevancy_score'].nlargest(10).values])}")
-        print(f"  Articles sorted by relevancy score (highest first)")
-    
-    # Credibility score statistics
-    if 'credibility_score' in df.columns:
-        print("\nCredibility Score Statistics:")
-        print(f"  Average: {df['credibility_score'].mean():.4f}")
-        print(f"  Median: {df['credibility_score'].median():.4f}")
-        print(f"  Top 10 scores: {', '.join([f'{s:.4f}' for s in df['credibility_score'].nlargest(10).values])}")
-    
-        # Breakdown by source tier
-        print("\nCredibility by Source Tier:")
-        for tier in ['tier_1', 'tier_2', 'tier_3', 'tier_4']:
-            tier_df = df[df['source_tier'] == tier]
-            if not tier_df.empty:
-                avg_cred = tier_df['credibility_score'].mean()
-                count = len(tier_df)
-                tier_desc = SOURCE_TIERS[tier]['description']
-                print(f"  {tier} ({tier_desc}): {count} articles, avg credibility: {avg_cred:.4f}")
-        
-        # DOI statistics
-        if 'has_doi' in df.columns:
-            doi_count = df['has_doi'].sum()
-            print(f"\nResearch papers with DOI: {doi_count}")
-            if doi_count > 0:
-                doi_avg_cred = df[df['has_doi']]['credibility_score'].mean()
-                no_doi_avg_cred = df[~df['has_doi'] & (df['source'] == 'arXiv')]['credibility_score'].mean()
-                print(f"  Average credibility with DOI: {doi_avg_cred:.4f}")
-                if not pd.isna(no_doi_avg_cred):
-                    print(f"  Average credibility without DOI: {no_doi_avg_cred:.4f}")
-        
-    print(f"  Articles sorted by credibility score (highest first)")
-    
-    print("\n" + "=" * 80)
-    print("\nNext Steps:")
-    print("1. Review the CSV file and validate each incident")
-    print("2. Fill in 'severity' field (low/medium/high/critical)")
-    print("3. Update 'status' field as you review")
-    print("4. Add notes in 'reviewer_notes' field")
-    print("=" * 80)
+def save_all_outputs(
+    incidents: List[Dict],
+    csv_file: str = 'sycophancy_incidents_2023_present.csv',
+    json_file: str = 'incidents.json',
+    stats_file: str = 'sycophancy_incidents_2023_present_stats.txt',
+    allow_empty: bool = False,
+) -> None:
+    """
+    Save incidents in both CSV and JSON formats and write a single statistics file.
 
-
-def save_results_json(incidents: List[Dict], 
-                     output_file: str = 'incidents.json',
-                     stats_file: str = 'sycophancy_incidents_2023_present_stats.txt',
-                     commit_to_github: bool = False, 
-                     allow_empty: bool = False):
-    """Save incidents to JSON and statistics to text file, then commit both to GitHub
-    
-    Args:
-        incidents: List of incident dictionaries to save
-        output_file: Path to output JSON file for raw data
-        stats_file: Path to output text file for statistics
-        commit_to_github: Whether to commit and push to GitHub
-        allow_empty: Whether to save an empty file if no incidents found
+    - Builds and sorts a DataFrame once
+    - Uses that for both CSV + JSON
+    - Uses the same DataFrame for statistics
     """
     if not incidents:
         if not allow_empty:
             print("\n No incidents found!")
-            print("  (Use allow_empty=True to save an empty file)")
+            print("  (Use allow_empty=True to write empty files)")
             return
         else:
-            print("\n No incidents found - saving empty file as requested")
-    
+            print("\n No incidents found - saving empty files as requested")
+
+    # Build DataFrame once
     df = pd.DataFrame(incidents)
-    
-    # Convert publication_date to datetime
-    df['publication_date'] = pd.to_datetime(df['publication_date'], errors='coerce')
-    
-    # Sort by relevancy_score (highest first), then by publication_date (newest first)
+
+    # Ensure publication_date is datetime for sorting/statistics
+    if 'publication_date' in df.columns:
+        df['publication_date'] = pd.to_datetime(df['publication_date'], errors='coerce')
+
+    # Sort by credibility + relevancy + date (if present)
+    sort_cols = []
+    ascending = []
+
+    if 'credibility_score' in df.columns:
+        sort_cols.append('credibility_score')
+        ascending.append(False)
     if 'relevancy_score' in df.columns:
-        if 'credibility_score' in df.columns:
-            df = df.sort_values(['credibility_score', 'relevancy_score', 'publication_date'], 
-                                ascending=[False, False, False])
-        else:
-            df = df.sort_values(['relevancy_score', 'publication_date'], ascending=[False, False])
-    
-    # Convert datetime to string for JSON serialization
-    if not df.empty:
-        df['publication_date'] = df['publication_date'].dt.strftime('%Y-%m-%d')
-    
-    # Save to JSON (overwrites existing file)
-    df.to_json(output_file, orient='records', indent=2, date_format='iso')
-    print(f"\n✓ Saved {len(incidents)} incidents to {output_file}")
-    
-    # Convert publication_date back to datetime for statistics
-    df['publication_date'] = pd.to_datetime(df['publication_date'], errors='coerce')
-    
-    # Generate statistics and save to file
+        sort_cols.append('relevancy_score')
+        ascending.append(False)
+    if 'publication_date' in df.columns:
+        sort_cols.append('publication_date')
+        ascending.append(False)
+
+    if sort_cols:
+        df = df.sort_values(sort_cols, ascending=ascending)
+
+    # -----------------
+    # 1) Write CSV
+    # -----------------
+    df.to_csv(csv_file, index=False)
+    print(f"\n✓ Saved {len(incidents)} incidents to {csv_file}")
+
+    # -----------------
+    # 2) Write JSON
+    # -----------------
+    json_df = df.copy()
+
+    # Convert publication_date back to string for JSON
+    if 'publication_date' in json_df.columns:
+        json_df['publication_date'] = json_df['publication_date'].dt.strftime('%Y-%m-%d')
+
+    json_df.to_json(json_file, orient='records', indent=2, date_format='iso')
+    print(f"✓ Saved {len(incidents)} incidents to {json_file}")
+
+    # -----------------
+    # 3) Statistics
+    # -----------------
     stats_content = generate_statistics(df, incidents)
-    
+
     with open(stats_file, 'w', encoding='utf-8') as f:
         f.write(stats_content)
-    
-    print(f"✓ Saved statistics to {stats_file}")
-    
-    # Print statistics to console as well
-    print(stats_content)
-    
-    # Commit to GitHub if requested
-    if commit_to_github:
-        try:
-            print("\n" + "=" * 80)
-            print("COMMITTING TO GITHUB")
-            print("=" * 80)
-            
-            # Check if there are actual changes to commit
-            status_result = subprocess.run(['git', 'status', '--porcelain', output_file, stats_file], 
-                                         capture_output=True, text=True, check=True)
-            
-            if not status_result.stdout.strip():
-                print(f"✓ No changes detected - skipping commit")
-                print("=" * 80)
-                return
-            
-            # Add both files
-            subprocess.run(['git', 'add', output_file, stats_file], check=True)
-            print(f"✓ Added {output_file} and {stats_file} to git")
-            
-            # Create commit message with timestamp and incident count
-            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            
-            if len(incidents) == 0:
-                commit_message = f"Clear incidents data (0 incidents) - {timestamp}"
-            else:
-                commit_message = f"Update incidents data: {len(incidents)} incidents ({timestamp})"
-            
-            subprocess.run(['git', 'commit', '-m', commit_message], check=True)
-            print(f"✓ Committed with message: {commit_message}")
-            
-            # Push to remote
-            subprocess.run(['git', 'push'], check=True)
-            print("✓ Pushed to GitHub remote")
-            
-            print("=" * 80)
-            
-        except subprocess.CalledProcessError as e:
-            print(f"\n⚠ Warning: Failed to commit to GitHub: {e}")
-            print("  You may need to commit manually or check your git configuration")
-        except FileNotFoundError:
-            print("\n⚠ Warning: Git not found. Please install git or commit manually")
 
+    print(f"✓ Saved statistics to {stats_file}")
+    print(stats_content)
 
 def generate_statistics(df: pd.DataFrame, incidents: List[Dict]) -> str:
     """Generate statistics report as a string
@@ -1819,22 +1681,19 @@ Examples:
         print("-" * 80)
         all_incidents = add_credibility_scores(all_incidents)
         print(f"Added credibility scores to {len(all_incidents)} incidents")
-        
+
         # Step 6: Save results
         print("\n[6/6] SAVING RESULTS")
         print("-" * 80)
-        
-        # 1) CSV output (as before)
-        save_results(all_incidents, args.output)
-        
-        # 2) JSON + stats output (for GitHub Pages + analytics)
-        save_results_json(
-            all_incidents,
-            output_file=str(json_output),
-            stats_file=str(stats_output),
-            commit_to_github=True,
+
+        save_all_outputs(
+            incidents=all_incidents,
+            csv_file=args.output,           # e.g. sycophancy_incidents_2023_present.csv
+            json_file=str(json_output),     # e.g. incidents.json (next to index.html)
+            stats_file=str(stats_output),   # e.g. sycophancy_incidents_2023_present_stats.txt
+            allow_empty=False,
         )
-    
+
     finally:
         if tee:
             sys.stdout = tee.terminal
