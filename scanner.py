@@ -1483,7 +1483,7 @@ def save_results(incidents: List[Dict], output_file: str = 'sycophancy_incidents
 def save_results_json(incidents: List[Dict], 
                      output_file: str = 'incidents.json',
                      stats_file: str = 'sycophancy_incidents_2023_present_stats.txt',
-                     commit_to_github: bool = True, 
+                     commit_to_github: bool = False, 
                      allow_empty: bool = False):
     """Save incidents to JSON and statistics to text file, then commit both to GitHub
     
