@@ -1477,6 +1477,124 @@ def save_results(incidents: List[Dict], output_file: str = 'sycophancy_incidents
     print("=" * 80)
 
 
+def save_results_json(incidents: List[Dict], output_file: str = 'sycophancy_incidents_2023_present.json'):
+    """Save incidents to JSON with summary statistics"""
+    if not incidents:
+        print("\n No incidents found!")
+        return
+    
+    df = pd.DataFrame(incidents)
+    
+    # Convert publication_date to datetime
+    df['publication_date'] = pd.to_datetime(df['publication_date'], errors='coerce')
+    
+    # Sort by relevancy_score (highest first), then by publication_date (newest first)
+    if 'relevancy_score' in df.columns:
+        if 'credibility_score' in df.columns:
+            df = df.sort_values(['credibility_score', 'relevancy_score', 'publication_date'], 
+                                ascending=[False, False, False])
+        else:
+            df = df.sort_values(['relevancy_score', 'publication_date'], ascending=[False, False])
+    
+    # Convert datetime to string for JSON serialization
+    df['publication_date'] = df['publication_date'].dt.strftime('%Y-%m-%d')
+    
+    # Save to JSON
+    df.to_json(output_file, orient='records', indent=2, date_format='iso')
+    
+    print(f"\n✓ Saved {len(incidents)} incidents to {output_file}")
+    
+    # Convert publication_date back to datetime for statistics
+    df['publication_date'] = pd.to_datetime(df['publication_date'], errors='coerce')
+    
+    # Summary statistics
+    print("\n" + "=" * 80)
+    print("SUMMARY STATISTICS (2023-Present)")
+    print("=" * 80)
+    print(f"\nTotal unique incidents: {len(incidents)}")
+    
+    # Timeline breakdown
+    print("\nIncidents by Year:")
+    year_counts = df[df['publication_date'].notna()].groupby(df['publication_date'].dt.year).size()
+    for year, count in year_counts.items():
+        print(f"  - {int(year)}: {count}")
+    
+    # Monthly breakdown for 2025
+    if 2025 in year_counts.index:
+        print("\n2025 by Month:")
+        df_2025 = df[df['publication_date'].dt.year == 2025]
+        month_counts = df_2025.groupby(df_2025['publication_date'].dt.month).size()
+        for month, count in month_counts.items():
+            month_name = datetime(2025, int(month), 1).strftime('%B')
+            print(f"  - {month_name}: {count}")
+    
+    # Vulnerable populations
+    if df['vulnerable_populations'].any():
+        print("\nVulnerable Populations Mentioned:")
+        pop_counts = df['vulnerable_populations'].str.split(', ').explode().value_counts()
+        for pop, count in pop_counts.head(10).items():
+            if pop:
+                print(f"  - {pop}: {count}")
+    
+    # Top sources
+    print("\nTop Sources:")
+    for source, count in df['source'].value_counts().head(15).items():
+        print(f"  - {source}: {count}")
+    
+    # Date range
+    valid_dates = df[df['publication_date'].notna()]['publication_date']
+    if not valid_dates.empty:
+        earliest = valid_dates.min()
+        latest = valid_dates.max()
+        print(f"\nDate Range: {earliest.strftime('%Y-%m-%d')} to {latest.strftime('%Y-%m-%d')}")
+    
+    # Relevancy score statistics
+    if 'relevancy_score' in df.columns:
+        print("\nRelevancy Score Statistics:")
+        print(f"  Average: {df['relevancy_score'].mean():.4f}")
+        print(f"  Median: {df['relevancy_score'].median():.4f}")
+        print(f"  Top 10 scores: {', '.join([f'{s:.4f}' for s in df['relevancy_score'].nlargest(10).values])}")
+        print(f"  Articles sorted by relevancy score (highest first)")
+    
+    # Credibility score statistics
+    if 'credibility_score' in df.columns:
+        print("\nCredibility Score Statistics:")
+        print(f"  Average: {df['credibility_score'].mean():.4f}")
+        print(f"  Median: {df['credibility_score'].median():.4f}")
+        print(f"  Top 10 scores: {', '.join([f'{s:.4f}' for s in df['credibility_score'].nlargest(10).values])}")
+    
+        # Breakdown by source tier
+        print("\nCredibility by Source Tier:")
+        for tier in ['tier_1', 'tier_2', 'tier_3', 'tier_4']:
+            tier_df = df[df['source_tier'] == tier]
+            if not tier_df.empty:
+                avg_cred = tier_df['credibility_score'].mean()
+                count = len(tier_df)
+                tier_desc = SOURCE_TIERS[tier]['description']
+                print(f"  {tier} ({tier_desc}): {count} articles, avg credibility: {avg_cred:.4f}")
+        
+        # DOI statistics
+        if 'has_doi' in df.columns:
+            doi_count = df['has_doi'].sum()
+            print(f"\nResearch papers with DOI: {doi_count}")
+            if doi_count > 0:
+                doi_avg_cred = df[df['has_doi']]['credibility_score'].mean()
+                no_doi_avg_cred = df[~df['has_doi'] & (df['source'] == 'arXiv')]['credibility_score'].mean()
+                print(f"  Average credibility with DOI: {doi_avg_cred:.4f}")
+                if not pd.isna(no_doi_avg_cred):
+                    print(f"  Average credibility without DOI: {no_doi_avg_cred:.4f}")
+        
+    print(f"  Articles sorted by credibility score (highest first)")
+    
+    print("\n" + "=" * 80)
+    print("\nNext Steps:")
+    print("1. Review the JSON file and validate each incident")
+    print("2. Fill in 'severity' field (low/medium/high/critical)")
+    print("3. Update 'status' field as you review")
+    print("4. Add notes in 'reviewer_notes' field")
+    print("=" * 80)
+
+
 def main():
     import argparse
     
@@ -1607,6 +1725,7 @@ Examples:
         print("-" * 80)
         
         save_results(all_incidents, args.output)
+        save_results_json(all_incidents, args.output)
     
     finally:
         # Restore stdout and close log file
