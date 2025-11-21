@@ -9,7 +9,7 @@ const SAFE_DISPLAY_CONFIG = {
   // Only show incidents that meet all these by default
   requireReviewed: true,
   reviewStatusField: 'review_status', // or 'status' if you change schema
-  reviewedValues: ['approved', 'reviewed'], // configurable
+  reviewedValues: ['discovered'] //change to ['approved', 'reviewed'] 
 
   minRelevancyScore: 45.0, // default threshold
   excludedSources: ['arXiv'], // configurable, exact match on source field
