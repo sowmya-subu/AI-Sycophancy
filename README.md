@@ -8,7 +8,7 @@ Scans RSS feeds, arXiv, and Hacker News to identify and catalog AI sycophancy in
 
 ### Prerequisites
 
-- Python 3.8 or higher
+- Python 3.11 or higher
 - pip (Python package installer)
 
 ### Installation
