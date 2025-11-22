@@ -1792,10 +1792,10 @@ def add_taxonomy_keywords(incidents: List[Dict], use_embeddings: bool = True) ->
         # Classify article
         keywords = classify_article_taxonomy(title, summary, model)
         
-        # Store as comma-separated string for CSV compatibility
-        # (CSV doesn't handle arrays well, but JSON will have array)
-        incident['keywords'] = ', '.join(keywords)
-        incident['keywords_array'] = keywords  # Keep array for JSON
+        # Keywords are computed but not stored in output
+        # (Commented out - keywords not written to CSV/JSON)
+        # incident['keywords'] = ', '.join(keywords)
+        # incident['keywords_array'] = keywords
         
         classified_count += 1
         if (i + 1) % 50 == 0:
@@ -1986,6 +1986,12 @@ def save_all_outputs(
 
     # Build DataFrame once
     df = pd.DataFrame(all_incidents)
+    
+    # Remove keywords fields from output if they exist
+    if 'keywords' in df.columns:
+        df = df.drop(columns=['keywords'])
+    if 'keywords_array' in df.columns:
+        df = df.drop(columns=['keywords_array'])
 
     # Ensure publication_date is datetime for sorting/statistics
     if 'publication_date' in df.columns:
@@ -2131,21 +2137,6 @@ def generate_statistics(df: pd.DataFrame, incidents: List[Dict]) -> str:
     lines.append("\nTop Sources:")
     for source, count in df['source'].value_counts().head(15).items():
         lines.append(f"  - {source}: {count}")
-    
-    # Taxonomy keywords distribution
-    if 'keywords' in df.columns:
-        lines.append("\nTaxonomy Keywords Distribution:")
-        # Split keywords and count
-        all_keywords = []
-        for kw_str in df['keywords'].dropna():
-            if isinstance(kw_str, str):
-                all_keywords.extend([k.strip() for k in kw_str.split(',') if k.strip()])
-        
-        if all_keywords:
-            from collections import Counter
-            keyword_counts = Counter(all_keywords)
-            for kw, count in keyword_counts.most_common(15):
-                lines.append(f"  - {kw}: {count}")
     
     # Date range
     valid_dates = df[df['publication_date'].notna()]['publication_date']
