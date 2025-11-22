@@ -118,7 +118,7 @@ function normalizeIncident(raw, index) {
     publication_date,
     vulnerable_populations:
       raw.vulnerable_populations || raw.vulnerable_population || '',
-    review_status: raw.review_status || raw.status || '',
+    status: raw.review_status || raw.status || '',
     relevancy_score,
   };
 }
