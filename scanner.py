@@ -1988,10 +1988,10 @@ def save_all_outputs(
     df = pd.DataFrame(all_incidents)
     
     # Remove keywords fields from output if they exist
-    if 'keywords' in df.columns:
-        df = df.drop(columns=['keywords'])
-    if 'keywords_array' in df.columns:
-        df = df.drop(columns=['keywords_array'])
+    #if 'keywords' in df.columns:
+    #    df = df.drop(columns=['keywords'])
+    #if 'keywords_array' in df.columns:
+    #    df = df.drop(columns=['keywords_array'])
 
     # Ensure publication_date is datetime for sorting/statistics
     if 'publication_date' in df.columns:
