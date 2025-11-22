@@ -6,11 +6,12 @@
 const INCIDENTS_URL = 'incidents.json';
 
 const SAFE_DISPLAY_CONFIG = {
+  // Only show incidents that meet all these by default
   requireReviewed: true,
-  reviewStatusField: 'status',
-  reviewedValues: ['discovered'],
-  minRelevancyScore: 0.40,
-  excludedSources: ['arXiv'],
+  reviewStatusField: 'status', // or 'status' if you change schema
+  reviewedValues: ['discovered'], // change to ['approved', 'reviewed']
+  minRelevancyScore: 0.40, // default threshold 40.0, but relevancy score is between 0 and 1
+  excludedSources: ['arXiv','Hacker News'], // configurable, exact match on source field
 };
 
 const UI_CONFIG = {
@@ -25,13 +26,14 @@ let allIncidents = [];
 let safeIncidents = [];
 let filteredIncidents = [];
 
-let currentSort = 'date_desc';
+let currentSort = 'date_desc'; // 'date_desc' | 'date_asc' | 'relevance_desc' | 'relevance_asc'
 let currentPage = 1;
 let mobileVisibleCount = UI_CONFIG.pageSize;
 
 let sourceOptions = [];
 let vulnerableOptions = [];
 
+// Cached DOM refs
 const incidentGrid = document.getElementById('incident-grid');
 const pageInfoEl = document.getElementById('page-info');
 const prevPageBtn = document.getElementById('prev-page');
@@ -41,6 +43,7 @@ const searchButton = document.getElementById('search-button');
 const fromDateInput = document.getElementById('filter-from');
 const toDateInput = document.getElementById('filter-to');
 
+// Will be created dynamically
 let sortSelect = null;
 let sourceFilterSelect = null;
 let vulnerableFilterSelect = null;
@@ -69,12 +72,24 @@ function parseDate(value) {
 }
 
 function getRelevancy(incident) {
+  // Support both relevancy_score and relevance_score just in case
   if (typeof incident.relevancy_score === 'number') return incident.relevancy_score;
   if (typeof incident.relevance_score === 'number') return incident.relevance_score;
   return null;
 }
 
+// Decide if summary is basically redundant with title
+function areTextsRedundant(title, summary) {
+  const t = (title || '').toLowerCase().trim();
+  const s = (summary || '').toLowerCase().trim();
+  if (!t || !s) return false;
+  if (t === s) return true;
+  if (s.startsWith(t) && s.length - t.length < 30) return true;
+  return false;
+}
+
 function passesSafeDisplay(incident) {
+  // Exclude sources
   if (
     SAFE_DISPLAY_CONFIG.excludedSources.length > 0 &&
     SAFE_DISPLAY_CONFIG.excludedSources.includes(incident.source)
@@ -82,6 +97,7 @@ function passesSafeDisplay(incident) {
     return false;
   }
 
+  // Relevancy threshold
   const score = getRelevancy(incident);
   if (
     SAFE_DISPLAY_CONFIG.minRelevancyScore != null &&
@@ -91,6 +107,7 @@ function passesSafeDisplay(incident) {
     return false;
   }
 
+  // Review status
   if (SAFE_DISPLAY_CONFIG.requireReviewed) {
     const fieldName = SAFE_DISPLAY_CONFIG.reviewStatusField;
     const statusValue = safeLower(incident[fieldName]);
@@ -150,17 +167,20 @@ function sortIncidents(list) {
   const sorted = [...list];
 
   sorted.sort((a, b) => {
-    if (currentSort.startsWith('date')) {
+    if (currentSort === 'date_desc' || currentSort === 'date_asc') {
       const da = parseDate(a.publication_date);
       const db = parseDate(b.publication_date);
-      return currentSort === 'date_desc'
-        ? (db ? db.getTime() : 0) - (da ? da.getTime() : 0)
-        : (da ? da.getTime() : 0) - (db ? db.getTime() : 0);
+
+      const ta = da ? da.getTime() : 0;
+      const tb = db ? db.getTime() : 0;
+
+      return currentSort === 'date_desc' ? tb - ta : ta - tb;
     }
 
-    if (currentSort.startsWith('relevance')) {
+    if (currentSort === 'relevance_desc' || currentSort === 'relevance_asc') {
       const sa = getRelevancy(a) ?? -Infinity;
       const sb = getRelevancy(b) ?? -Infinity;
+
       return currentSort === 'relevance_desc' ? sb - sa : sa - sb;
     }
 
@@ -185,6 +205,7 @@ function applyFiltersAndSort() {
   const selectedVuln = vulnerableFilterSelect ? vulnerableFilterSelect.value : '';
 
   let list = safeIncidents.filter((incident) => {
+    // Search text
     if (query) {
       const text = [
         incident.title,
@@ -198,12 +219,17 @@ function applyFiltersAndSort() {
       if (!text.includes(query)) return false;
     }
 
+    // Date range
     const d = parseDate(incident.publication_date);
     if (fromDate && d && d < fromDate) return false;
     if (toDate && d && d > toDate) return false;
 
-    if (selectedSource && incident.source !== selectedSource) return false;
+    // Source filter
+    if (selectedSource) {
+      if (incident.source !== selectedSource) return false;
+    }
 
+    // Vulnerable population filter
     if (selectedVuln) {
       const vp = (incident.vulnerable_populations || '')
         .split(',')
@@ -217,6 +243,7 @@ function applyFiltersAndSort() {
   list = sortIncidents(list);
   filteredIncidents = list;
 
+  // Reset paging
   currentPage = 1;
   mobileVisibleCount = UI_CONFIG.pageSize;
 
@@ -234,46 +261,53 @@ function createIncidentCard(incident) {
   const title = incident.title || 'Untitled incident';
   const source = incident.source || 'Unknown source';
   const pubDate = parseDate(incident.publication_date);
-  const dateText = pubDate ? pubDate.toISOString().slice(0, 10) : 'Date not available';
-
+  const dateText = pubDate
+    ? pubDate.toISOString().slice(0, 10)
+    : 'Date not available';
   const summary = incident.summary || '';
   const vuln = incident.vulnerable_populations || '';
 
   const hideSummary =
     !summary ||
     summary.trim().length < 5 ||
-    summary.toLowerCase().trim() === title.toLowerCase().trim();
+    areTextsRedundant(title, summary);
 
   card.innerHTML = `
     <div class="incident-card-main">
       <h3 class="incident-title">${title}</h3>
-
       <div class="incident-meta">
         <span class="incident-source">${source}</span>
         <span class="incident-date">${dateText}</span>
       </div>
-
       ${
         hideSummary
           ? ''
           : `<p class="incident-summary">${summary}</p>`
       }
-
       ${
         vuln
           ? `<p class="incident-vulnerable"><strong>Keywords:</strong> ${vuln}</p>`
           : ''
       }
     </div>
-
-    <div class="incident-actions" style="justify-content:flex-end;">
+    <div class="incident-actions">
+      <a href="${incident.url}" target="_blank" rel="noopener noreferrer" class="button-link">
+        View article
+      </a>
       <button type="button" class="button-ghost copy-link">Copy link</button>
     </div>
   `;
 
-  // Clicking the card opens the article (except buttons)
+  // Entire card click takes you to article
   card.addEventListener('click', (e) => {
-    if (e.target.closest('.copy-link')) return;
+    // Avoid double-activating when clicking buttons
+    const target = e.target;
+    if (
+      target.closest('.copy-link') ||
+      target.closest('.button-link')
+    ) {
+      return;
+    }
     if (incident.url && incident.url !== '#') {
       window.open(incident.url, '_blank', 'noopener,noreferrer');
     }
@@ -290,6 +324,9 @@ function createIncidentCard(incident) {
         .then(() => {
           copyBtn.textContent = 'Copied';
           setTimeout(() => (copyBtn.textContent = 'Copy link'), 1500);
+        })
+        .catch(() => {
+          alert('Unable to copy link. Please copy manually.');
         });
     });
   }
@@ -308,16 +345,22 @@ function renderIncidents() {
   }
 
   if (isMobile()) {
+    // Lazy-load vertical list
     const count = Math.min(mobileVisibleCount, filteredIncidents.length);
     const items = filteredIncidents.slice(0, count);
 
-    items.forEach((incident) => incidentGrid.appendChild(createIncidentCard(incident)));
+    items.forEach((incident) => {
+      const card = createIncidentCard(incident);
+      incidentGrid.appendChild(card);
+    });
 
     if (pageInfoEl) {
       pageInfoEl.textContent = `Showing ${count} of ${filteredIncidents.length}`;
     }
 
-    if (prevPageBtn) prevPageBtn.style.display = 'none';
+    if (prevPageBtn) {
+      prevPageBtn.style.display = 'none';
+    }
     if (nextPageBtn) {
       nextPageBtn.style.display = 'inline-flex';
       nextPageBtn.textContent =
@@ -325,18 +368,21 @@ function renderIncidents() {
       nextPageBtn.disabled = count >= filteredIncidents.length;
     }
   } else {
+    // Desktop pagination
     const totalPages = Math.max(
       1,
       Math.ceil(filteredIncidents.length / UI_CONFIG.pageSize)
     );
-
     if (currentPage > totalPages) currentPage = totalPages;
 
     const startIdx = (currentPage - 1) * UI_CONFIG.pageSize;
     const endIdx = startIdx + UI_CONFIG.pageSize;
     const items = filteredIncidents.slice(startIdx, endIdx);
 
-    items.forEach((incident) => incidentGrid.appendChild(createIncidentCard(incident)));
+    items.forEach((incident) => {
+      const card = createIncidentCard(incident);
+      incidentGrid.appendChild(card);
+    });
 
     if (pageInfoEl) {
       pageInfoEl.textContent = `Page ${currentPage} of ${totalPages}`;
@@ -353,7 +399,7 @@ function renderIncidents() {
 }
 
 // -------------------------
-// UI wiring
+// UI wiring (sort + filters)
 // -------------------------
 function initSortControl() {
   const sectionHeader = document.querySelector('#incidents .section-header');
@@ -391,6 +437,7 @@ function initDynamicFilters() {
   const advancedGrid = document.querySelector('#search .advanced-grid');
   if (!advancedGrid) return;
 
+  // Build options from safeIncidents
   const sources = new Set();
   const vulns = new Set();
 
@@ -400,6 +447,7 @@ function initDynamicFilters() {
       inc.vulnerable_populations
         .split(',')
         .map((s) => s.trim())
+        .filter(Boolean)
         .forEach((v) => vulns.add(v));
     }
   });
@@ -407,14 +455,17 @@ function initDynamicFilters() {
   sourceOptions = Array.from(sources).sort();
   vulnerableOptions = Array.from(vulns).sort();
 
+  // Source filter
   if (sourceOptions.length > 0) {
     const field = document.createElement('div');
     field.className = 'field';
 
     const label = document.createElement('label');
+    label.setAttribute('for', 'filter-source');
     label.textContent = 'Source';
 
     const select = document.createElement('select');
+    select.id = 'filter-source';
     select.className = 'input';
     select.innerHTML =
       '<option value="">Any</option>' +
@@ -428,14 +479,17 @@ function initDynamicFilters() {
     sourceFilterSelect.addEventListener('change', applyFiltersAndSort);
   }
 
+  // Vulnerable population filter (renamed label to Keywords)
   if (vulnerableOptions.length > 0) {
     const field = document.createElement('div');
     field.className = 'field';
 
     const label = document.createElement('label');
+    label.setAttribute('for', 'filter-vulnerable');
     label.textContent = 'Keywords';
 
     const select = document.createElement('select');
+    select.id = 'filter-vulnerable';
     select.className = 'input';
     select.innerHTML =
       '<option value="">Any</option>' +
@@ -451,6 +505,89 @@ function initDynamicFilters() {
 }
 
 // -------------------------
+// Event wiring
+// -------------------------
+function initEvents() {
+  if (searchButton && searchInput) {
+    searchButton.addEventListener('click', (e) => {
+      e.preventDefault();
+      applyFiltersAndSort();
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        applyFiltersAndSort();
+      }
+    });
+  }
+
+  if (fromDateInput) {
+    fromDateInput.addEventListener('change', applyFiltersAndSort);
+  }
+
+  if (toDateInput) {
+    toDateInput.addEventListener('change', applyFiltersAndSort);
+  }
+
+  if (prevPageBtn) {
+    prevPageBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (isMobile()) return; // no prev on mobile
+      if (currentPage > 1) {
+        currentPage -= 1;
+        renderIncidents();
+      }
+    });
+  }
+
+  if (nextPageBtn) {
+    nextPageBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (isMobile()) {
+        // Lazy-load more
+        if (mobileVisibleCount < filteredIncidents.length) {
+          mobileVisibleCount += UI_CONFIG.pageSize;
+          renderIncidents();
+        }
+      } else {
+        // Desktop pagination
+        const totalPages = Math.max(
+          1,
+          Math.ceil(filteredIncidents.length / UI_CONFIG.pageSize)
+        );
+        if (currentPage < totalPages) {
+          currentPage += 1;
+          renderIncidents();
+        }
+      }
+    });
+  }
+
+  window.addEventListener('resize', () => {
+    // Reset paging mode when crossing breakpoint
+    currentPage = 1;
+    mobileVisibleCount = UI_CONFIG.pageSize;
+    renderIncidents();
+  });
+
+  // Newsletter dummy handler to prevent page reload
+  const newsletterForm = document.getElementById('newsletter-form');
+  const newsletterMsg = document.getElementById('newsletter-message');
+  if (newsletterForm && newsletterMsg) {
+    newsletterForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const emailInput = document.getElementById('newsletter-email');
+      const email = emailInput?.value || '';
+      if (!email) return;
+      newsletterMsg.textContent =
+        'Thanks for your interest. Newsletter functionality is not yet implemented.';
+      newsletterForm.reset();
+    });
+  }
+}
+
+// -------------------------
 // Initialization
 // -------------------------
 async function loadIncidents() {
@@ -461,11 +598,15 @@ async function loadIncidents() {
   try {
     const res = await fetch(INCIDENTS_URL, { cache: 'no-store' });
     if (!res.ok) {
-      showMessage('No sycophancy related incidents found', 'info');
-      return;
+      if (res.status === 404) {
+        showMessage('No sycophancy related incidents found', 'info');
+        return;
+      }
+      throw new Error(`HTTP ${res.status}`);
     }
 
     const data = await res.json();
+
     if (!Array.isArray(data) || data.length === 0) {
       showMessage('No sycophancy related incidents found', 'info');
       return;
@@ -476,21 +617,23 @@ async function loadIncidents() {
 
     if (safeIncidents.length === 0) {
       showMessage(
-        'No incidents passed the current safety filters.',
+        'No incidents passed the current safety filters. Adjust thresholds or review status.',
         'info'
       );
       return;
     }
 
+    // Initialize sort & filters now that we have data
     initSortControl();
     initDynamicFilters();
 
+    // Default sort by date descending (most recent)
     currentSort = 'date_desc';
     filteredIncidents = sortIncidents(safeIncidents);
 
     renderIncidents();
   } catch (err) {
-    console.error(err);
+    console.error('Error loading incidents:', err);
     showMessage(
       'Unable to load incidents at this time. Please try again later.',
       'error'
@@ -503,5 +646,3 @@ document.addEventListener('DOMContentLoaded', () => {
   initEvents();
   loadIncidents();
 });
-
-
