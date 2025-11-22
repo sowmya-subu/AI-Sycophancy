@@ -11,7 +11,7 @@ const SAFE_DISPLAY_CONFIG = {
   reviewStatusField: 'status', // or 'status' if you change schema
   reviewedValues: ['discovered'], //change to ['approved', 'reviewed'] 
   minRelevancyScore: 0.40, // default threshold 40.0, but relevancy score is between 0 and 1
-  excludedSources: ['arXiv'], // configurable, exact match on source field
+  excludedSources: ['arXiv','Hacker News'], // configurable, exact match on source field
 };
 
 const UI_CONFIG = {
@@ -152,13 +152,20 @@ function passesSafeDisplay(incident) {
 function normalizeIncident(raw, index) {
   const publication_date =
     raw.publication_date || raw.date || raw.published_at || raw.published || null;
-
   const relevancy_score = getRelevancy(raw);
 
   const baseTitle = raw.title || 'Untitled incident';
-  const split = splitTitleAndSource(baseTitle, raw.source);
-  const finalTitle = split.title;
-  const finalSourceRaw = split.source || raw.source || 'Unknown source';
+  const originalSourceRaw = raw.source || 'Unknown source';
+  const cleanedOriginalSource = cleanSource(originalSourceRaw);
+
+  let finalTitle = baseTitle;
+  let finalSourceRaw = originalSourceRaw;
+
+  if (cleanedOriginalSource.toLowerCase() === 'google news') {
+    const split = splitTitleAndSource(baseTitle, originalSourceRaw);
+    finalTitle = split.title;
+    finalSourceRaw = split.source || originalSourceRaw;
+  }
 
   return {
     id: raw.id || raw.slug || raw.url || `incident-${index}`,
