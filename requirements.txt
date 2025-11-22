@@ -17,16 +17,17 @@ arxiv>=2.1.0
 
 # Machine learning for relevancy scoring
 scikit-learn>=1.3.0
-sentence-transformers>=2.2.0
-# Note: torch will be installed automatically by sentence-transformers
 
-# Summarization library
+# Semantic embeddings for relevancy scoring (used by scanner.py)
+sentence-transformers>=2.2.0
+
+# Summarization library (LSA and TextRank - lightweight)
 sumy>=0.11.0
 
-# Newspaper3k for article extraction
-newspaper3k>=0.2.8
-
-# Install NLTK data for summarization
+# NLTK for text processing
 nltk>=3.8.1
+
+# Newspaper4k for article extraction
+newspaper4k>=0.9.4.1
 
 

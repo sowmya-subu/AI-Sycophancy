@@ -49,7 +49,7 @@ try:
     NEWSPAPER_AVAILABLE = True
 except ImportError:
     NEWSPAPER_AVAILABLE = False
-    print("⚠️  Warning: newspaper3k not installed. Install with: pip install newspaper3k")
+    print("⚠️  Warning: newspaper4k not installed. Install with: pip install newspaper4k")
 
 # NLTK setup - MUST download data before importing sumy
 try:
@@ -699,7 +699,7 @@ def extract_article_text(url: str) -> Optional[str]:
     Extract full article text from URL.
     Returns None if extraction fails.
     """
-    # Try newspaper3k first (best results)
+    # Try newspaper4k first (best results)
     if NEWSPAPER_AVAILABLE:
         try:
             article = Article(url)
@@ -1792,10 +1792,9 @@ def add_taxonomy_keywords(incidents: List[Dict], use_embeddings: bool = True) ->
         # Classify article
         keywords = classify_article_taxonomy(title, summary, model)
         
-        # Keywords are computed but not stored in output
-        # (Commented out - keywords not written to CSV/JSON)
-        # incident['keywords'] = ', '.join(keywords)
-        # incident['keywords_array'] = keywords
+        # Store keywords in both formats for output
+        incident['keywords'] = ', '.join(keywords)
+        incident['keywords_array'] = keywords
         
         classified_count += 1
         if (i + 1) % 50 == 0:
@@ -1986,12 +1985,6 @@ def save_all_outputs(
 
     # Build DataFrame once
     df = pd.DataFrame(all_incidents)
-    
-    # Remove keywords fields from output if they exist
-    if 'keywords' in df.columns:
-        df = df.drop(columns=['keywords'])
-    if 'keywords_array' in df.columns:
-        df = df.drop(columns=['keywords_array'])
 
     # Ensure publication_date is datetime for sorting/statistics
     if 'publication_date' in df.columns:
@@ -2029,49 +2022,48 @@ def save_all_outputs(
     if 'publication_date' in json_df.columns:
         json_df['publication_date'] = json_df['publication_date'].dt.strftime('%Y-%m-%d')
     
-    # Handle keywords: use keywords_array if available, otherwise parse keywords string
-    if 'keywords_array' in json_df.columns:
-        # Convert keywords_array to proper list format for JSON
-        json_records = json_df.to_dict('records')
-        for record in json_records:
-            if 'keywords_array' in record and record['keywords_array']:
-                # Use the array if it exists
-                if isinstance(record['keywords_array'], list):
-                    record['keywords'] = record['keywords_array']
-                elif isinstance(record['keywords_array'], str):
+    # Handle keywords: convert keywords_array to keywords list for JSON
+    json_records = json_df.to_dict('records')
+    for record in json_records:
+        # Convert keywords_array to keywords list for JSON output
+        if 'keywords_array' in record:
+            keywords_array = record['keywords_array']
+            if keywords_array:
+                if isinstance(keywords_array, list):
+                    record['keywords'] = keywords_array
+                elif isinstance(keywords_array, str):
                     # Parse if it's stored as string representation
                     try:
                         import ast
-                        record['keywords'] = ast.literal_eval(record['keywords_array'])
+                        record['keywords'] = ast.literal_eval(keywords_array)
                     except:
-                        record['keywords'] = [k.strip() for k in record['keywords_array'].split(',') if k.strip()]
+                        record['keywords'] = [k.strip() for k in keywords_array.split(',') if k.strip()]
                 else:
                     record['keywords'] = []
-                # Remove keywords_array to avoid duplication
-                if 'keywords_array' in record:
-                    del record['keywords_array']
-            elif 'keywords' in record and isinstance(record['keywords'], str):
-                # Fallback: parse keywords string
-                record['keywords'] = [k.strip() for k in record['keywords'].split(',') if k.strip()]
-        
-        # Clean NaN values (convert to None/null for JSON)
-        import math
-        for record in json_records:
-            for key, value in record.items():
-                # Convert NaN, NaT, and other pandas null values to None
-                if isinstance(value, float) and math.isnan(value):
-                    record[key] = None
-                elif pd.isna(value):
-                    record[key] = None
-        
-        # Write JSON with proper array format
-        with open(json_file, 'w', encoding='utf-8') as f:
-            json.dump(json_records, f, indent=2, ensure_ascii=False)
-    else:
-        # No keywords_array, use standard pandas JSON export
-        # Replace NaN with None for proper JSON null values
-        json_df = json_df.where(pd.notna(json_df), None)
-        json_df.to_json(json_file, orient='records', indent=2, date_format='iso')
+            else:
+                record['keywords'] = []
+            # Remove keywords_array to avoid duplication in JSON
+            del record['keywords_array']
+        elif 'keywords' in record and isinstance(record['keywords'], str):
+            # Fallback: parse keywords string if keywords_array not available
+            record['keywords'] = [k.strip() for k in record['keywords'].split(',') if k.strip()]
+        else:
+            # Ensure keywords field exists even if empty
+            record['keywords'] = []
+    
+    # Clean NaN values (convert to None/null for JSON)
+    import math
+    for record in json_records:
+        for key, value in record.items():
+            # Convert NaN, NaT, and other pandas null values to None
+            if isinstance(value, float) and math.isnan(value):
+                record[key] = None
+            elif pd.isna(value):
+                record[key] = None
+    
+    # Write JSON with proper array format
+    with open(json_file, 'w', encoding='utf-8') as f:
+        json.dump(json_records, f, indent=2, ensure_ascii=False)
     
     print(f"✓ Saved {len(all_incidents)} total incidents to {json_file} ({len(incidents)} new this run)")
 
