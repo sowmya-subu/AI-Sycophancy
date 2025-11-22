@@ -9,9 +9,9 @@ const SAFE_DISPLAY_CONFIG = {
   // Only show incidents that meet all these by default
   requireReviewed: true,
   reviewStatusField: 'status', // or 'status' if you change schema
-  reviewedValues: ['discovered'], // change to ['approved', 'reviewed']
+  reviewedValues: ['discovered'], //change to ['approved', 'reviewed'] 
   minRelevancyScore: 0.40, // default threshold 40.0, but relevancy score is between 0 and 1
-  excludedSources: ['arXiv','Hacker News'], // configurable, exact match on source field
+  excludedSources: ['arXiv'], // configurable, exact match on source field
 };
 
 const UI_CONFIG = {
@@ -59,12 +59,6 @@ function safeLower(str) {
   return (str || '').toString().toLowerCase();
 }
 
-// Trim source to only the prefix before the first ":"
-function cleanSource(str) {
-  if (!str) return 'Unknown source';
-  return str.split(':')[0].trim();
-}
-
 function parseDate(value) {
   if (!value) return null;
   const d = new Date(value);
@@ -78,13 +72,49 @@ function getRelevancy(incident) {
   return null;
 }
 
-// Decide if summary is basically redundant with title
-function areTextsRedundant(title, summary) {
+// Clean "Google News: AI sycophancy 2023" -> "Google News"
+function cleanSource(str) {
+  if (!str) return 'Unknown source';
+  return str.split(':')[0].trim();
+}
+
+// Extract "Psychology Today" from
+// "When ... delusional thinking can result. - Psychology Today"
+function splitTitleAndSource(title, fallbackSource) {
+  let cleanTitle = title || 'Untitled incident';
+  let source = fallbackSource || 'Unknown source';
+
+  if (!title) {
+    return { title: cleanTitle, source };
+  }
+
+  const separators = [' - ', ' – '];
+  for (const sep of separators) {
+    const idx = title.lastIndexOf(sep);
+    if (idx > -1 && idx < title.length - sep.length) {
+      const base = title.slice(0, idx).trim();
+      const candidate = title.slice(idx + sep.length).trim();
+      if (candidate) {
+        cleanTitle = base || cleanTitle;
+        source = candidate;
+        break;
+      }
+    }
+  }
+
+  return { title: cleanTitle, source };
+}
+
+// Decide if summary is basically the same as title
+function areTextsSimilar(title, summary) {
   const t = (title || '').toLowerCase().trim();
   const s = (summary || '').toLowerCase().trim();
   if (!t || !s) return false;
   if (t === s) return true;
-  if (s.startsWith(t) && s.length - t.length < 30) return true;
+  if (s.startsWith(t) || t.startsWith(s)) return true;
+  if (Math.abs(t.length - s.length) < 25 && (t.includes(s) || s.includes(t))) {
+    return true;
+  }
   return false;
 }
 
@@ -125,11 +155,16 @@ function normalizeIncident(raw, index) {
 
   const relevancy_score = getRelevancy(raw);
 
+  const baseTitle = raw.title || 'Untitled incident';
+  const split = splitTitleAndSource(baseTitle, raw.source);
+  const finalTitle = split.title;
+  const finalSourceRaw = split.source || raw.source || 'Unknown source';
+
   return {
     id: raw.id || raw.slug || raw.url || `incident-${index}`,
-    title: raw.title || 'Untitled incident',
+    title: finalTitle,
     url: raw.url || '#',
-    source: cleanSource(raw.source || 'Unknown source'),
+    source: cleanSource(finalSourceRaw),
     summary: raw.summary || '',
     publication_date,
     vulnerable_populations:
@@ -202,7 +237,9 @@ function applyFiltersAndSort() {
   const toDate = parseDate(toDateInput?.value);
 
   const selectedSource = sourceFilterSelect ? sourceFilterSelect.value : '';
-  const selectedVuln = vulnerableFilterSelect ? vulnerableFilterSelect.value : '';
+  const selectedVuln = vulnerableFilterSelect
+    ? vulnerableFilterSelect.value
+    : '';
 
   let list = safeIncidents.filter((incident) => {
     // Search text
@@ -270,7 +307,7 @@ function createIncidentCard(incident) {
   const hideSummary =
     !summary ||
     summary.trim().length < 5 ||
-    areTextsRedundant(title, summary);
+    areTextsSimilar(title, summary);
 
   card.innerHTML = `
     <div class="incident-card-main">
@@ -282,11 +319,13 @@ function createIncidentCard(incident) {
       ${
         hideSummary
           ? ''
-          : `<p class="incident-summary">${summary}</p>`
+          : `<p class="incident-summary">
+        ${summary}
+      </p>`
       }
       ${
         vuln
-          ? `<p class="incident-vulnerable"><strong>Keywords:</strong> ${vuln}</p>`
+          ? `<p class="incident-vulnerable"><strong>Vulnerable populations:</strong> ${vuln}</p>`
           : ''
       }
     </div>
@@ -295,6 +334,7 @@ function createIncidentCard(incident) {
         View article
       </a>
       <button type="button" class="button-ghost copy-link">Copy link</button>
+      <button type="button" class="button-ghost share-link">Share</button>
     </div>
   `;
 
@@ -304,6 +344,7 @@ function createIncidentCard(incident) {
     const target = e.target;
     if (
       target.closest('.copy-link') ||
+      target.closest('.share-link') ||
       target.closest('.button-link')
     ) {
       return;
@@ -328,6 +369,35 @@ function createIncidentCard(incident) {
         .catch(() => {
           alert('Unable to copy link. Please copy manually.');
         });
+    });
+  }
+
+  // Share
+  const shareBtn = card.querySelector('.share-link');
+  if (shareBtn) {
+    shareBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!incident.url) return;
+
+      const shareData = {
+        title: incident.title || 'AI sycophancy incident',
+        text: incident.summary || '',
+        url: incident.url,
+      };
+
+      if (navigator.share) {
+        try {
+          await navigator.share(shareData);
+        } catch (err) {
+          // user cancelled, ignore
+        }
+      } else {
+        // Fallback to copy
+        navigator.clipboard
+          .writeText(incident.url)
+          .then(() => alert('Link copied to clipboard'))
+          .catch(() => alert('Unable to share. Please copy link manually.'));
+      }
     });
   }
 
@@ -479,14 +549,14 @@ function initDynamicFilters() {
     sourceFilterSelect.addEventListener('change', applyFiltersAndSort);
   }
 
-  // Vulnerable population filter (renamed label to Keywords)
+  // Vulnerable population filter
   if (vulnerableOptions.length > 0) {
     const field = document.createElement('div');
     field.className = 'field';
 
     const label = document.createElement('label');
     label.setAttribute('for', 'filter-vulnerable');
-    label.textContent = 'Keywords';
+    label.textContent = 'Vulnerable population';
 
     const select = document.createElement('select');
     select.id = 'filter-vulnerable';
