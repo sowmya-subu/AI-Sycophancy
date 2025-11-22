@@ -6,12 +6,11 @@
 const INCIDENTS_URL = 'incidents.json';
 
 const SAFE_DISPLAY_CONFIG = {
-  // Only show incidents that meet all these by default
   requireReviewed: true,
-  reviewStatusField: 'status', // or 'status' if you change schema
-  reviewedValues: ['discovered'], //change to ['approved', 'reviewed'] 
-  minRelevancyScore: 0.40, // default threshold 40.0, but relevancy score is between 0 and 1
-  excludedSources: ['arXiv','Hacker News'], // configurable, exact match on source field
+  reviewStatusField: 'status',
+  reviewedValues: ['discovered'],
+  minRelevancyScore: 0.40,
+  excludedSources: ['arXiv', 'Hacker News'],
 };
 
 const UI_CONFIG = {
@@ -26,7 +25,7 @@ let allIncidents = [];
 let safeIncidents = [];
 let filteredIncidents = [];
 
-let currentSort = 'date_desc'; // 'date_desc' | 'date_asc' | 'relevance_desc' | 'relevance_asc'
+let currentSort = 'date_desc';
 let currentPage = 1;
 let mobileVisibleCount = UI_CONFIG.pageSize;
 
@@ -66,7 +65,6 @@ function parseDate(value) {
 }
 
 function getRelevancy(incident) {
-  // Support both relevancy_score and relevance_score just in case
   if (typeof incident.relevancy_score === 'number') return incident.relevancy_score;
   if (typeof incident.relevance_score === 'number') return incident.relevance_score;
   return null;
@@ -119,7 +117,6 @@ function areTextsSimilar(title, summary) {
 }
 
 function passesSafeDisplay(incident) {
-  // Exclude sources
   if (
     SAFE_DISPLAY_CONFIG.excludedSources.length > 0 &&
     SAFE_DISPLAY_CONFIG.excludedSources.includes(incident.source)
@@ -127,7 +124,6 @@ function passesSafeDisplay(incident) {
     return false;
   }
 
-  // Relevancy threshold
   const score = getRelevancy(incident);
   if (
     SAFE_DISPLAY_CONFIG.minRelevancyScore != null &&
@@ -137,7 +133,6 @@ function passesSafeDisplay(incident) {
     return false;
   }
 
-  // Review status
   if (SAFE_DISPLAY_CONFIG.requireReviewed) {
     const fieldName = SAFE_DISPLAY_CONFIG.reviewStatusField;
     const statusValue = safeLower(incident[fieldName]);
@@ -152,6 +147,7 @@ function passesSafeDisplay(incident) {
 function normalizeIncident(raw, index) {
   const publication_date =
     raw.publication_date || raw.date || raw.published_at || raw.published || null;
+
   const relevancy_score = getRelevancy(raw);
 
   const baseTitle = raw.title || 'Untitled incident';
@@ -161,6 +157,7 @@ function normalizeIncident(raw, index) {
   let finalTitle = baseTitle;
   let finalSourceRaw = originalSourceRaw;
 
+  // Only try to pull real outlet from title for Google News
   if (cleanedOriginalSource.toLowerCase() === 'google news') {
     const split = splitTitleAndSource(baseTitle, originalSourceRaw);
     finalTitle = split.title;
@@ -249,7 +246,6 @@ function applyFiltersAndSort() {
     : '';
 
   let list = safeIncidents.filter((incident) => {
-    // Search text
     if (query) {
       const text = [
         incident.title,
@@ -263,17 +259,12 @@ function applyFiltersAndSort() {
       if (!text.includes(query)) return false;
     }
 
-    // Date range
     const d = parseDate(incident.publication_date);
     if (fromDate && d && d < fromDate) return false;
     if (toDate && d && d > toDate) return false;
 
-    // Source filter
-    if (selectedSource) {
-      if (incident.source !== selectedSource) return false;
-    }
+    if (selectedSource && incident.source !== selectedSource) return false;
 
-    // Vulnerable population filter
     if (selectedVuln) {
       const vp = (incident.vulnerable_populations || '')
         .split(',')
@@ -287,7 +278,6 @@ function applyFiltersAndSort() {
   list = sortIncidents(list);
   filteredIncidents = list;
 
-  // Reset paging
   currentPage = 1;
   mobileVisibleCount = UI_CONFIG.pageSize;
 
@@ -326,13 +316,11 @@ function createIncidentCard(incident) {
       ${
         hideSummary
           ? ''
-          : `<p class="incident-summary">
-        ${summary}
-      </p>`
+          : `<p class="incident-summary">${summary}</p>`
       }
       ${
         vuln
-          ? `<p class="incident-vulnerable"><strong>Vulnerable populations:</strong> ${vuln}</p>`
+          ? `<p class="incident-vulnerable"><strong>Keywords:</strong> ${vuln}</p>`
           : ''
       }
     </div>
@@ -341,17 +329,14 @@ function createIncidentCard(incident) {
         View article
       </a>
       <button type="button" class="button-ghost copy-link">Copy link</button>
-      <button type="button" class="button-ghost share-link">Share</button>
     </div>
   `;
 
   // Entire card click takes you to article
   card.addEventListener('click', (e) => {
-    // Avoid double-activating when clicking buttons
     const target = e.target;
     if (
       target.closest('.copy-link') ||
-      target.closest('.share-link') ||
       target.closest('.button-link')
     ) {
       return;
@@ -379,35 +364,6 @@ function createIncidentCard(incident) {
     });
   }
 
-  // Share
-  const shareBtn = card.querySelector('.share-link');
-  if (shareBtn) {
-    shareBtn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      if (!incident.url) return;
-
-      const shareData = {
-        title: incident.title || 'AI sycophancy incident',
-        text: incident.summary || '',
-        url: incident.url,
-      };
-
-      if (navigator.share) {
-        try {
-          await navigator.share(shareData);
-        } catch (err) {
-          // user cancelled, ignore
-        }
-      } else {
-        // Fallback to copy
-        navigator.clipboard
-          .writeText(incident.url)
-          .then(() => alert('Link copied to clipboard'))
-          .catch(() => alert('Unable to share. Please copy link manually.'));
-      }
-    });
-  }
-
   return card;
 }
 
@@ -422,7 +378,6 @@ function renderIncidents() {
   }
 
   if (isMobile()) {
-    // Lazy-load vertical list
     const count = Math.min(mobileVisibleCount, filteredIncidents.length);
     const items = filteredIncidents.slice(0, count);
 
@@ -445,7 +400,6 @@ function renderIncidents() {
       nextPageBtn.disabled = count >= filteredIncidents.length;
     }
   } else {
-    // Desktop pagination
     const totalPages = Math.max(
       1,
       Math.ceil(filteredIncidents.length / UI_CONFIG.pageSize)
@@ -514,7 +468,6 @@ function initDynamicFilters() {
   const advancedGrid = document.querySelector('#search .advanced-grid');
   if (!advancedGrid) return;
 
-  // Build options from safeIncidents
   const sources = new Set();
   const vulns = new Set();
 
@@ -532,7 +485,6 @@ function initDynamicFilters() {
   sourceOptions = Array.from(sources).sort();
   vulnerableOptions = Array.from(vulns).sort();
 
-  // Source filter
   if (sourceOptions.length > 0) {
     const field = document.createElement('div');
     field.className = 'field';
@@ -556,14 +508,13 @@ function initDynamicFilters() {
     sourceFilterSelect.addEventListener('change', applyFiltersAndSort);
   }
 
-  // Vulnerable population filter
   if (vulnerableOptions.length > 0) {
     const field = document.createElement('div');
     field.className = 'field';
 
     const label = document.createElement('label');
     label.setAttribute('for', 'filter-vulnerable');
-    label.textContent = 'Vulnerable population';
+    label.textContent = 'Keywords';
 
     const select = document.createElement('select');
     select.id = 'filter-vulnerable';
@@ -610,7 +561,7 @@ function initEvents() {
   if (prevPageBtn) {
     prevPageBtn.addEventListener('click', (e) => {
       e.preventDefault();
-      if (isMobile()) return; // no prev on mobile
+      if (isMobile()) return;
       if (currentPage > 1) {
         currentPage -= 1;
         renderIncidents();
@@ -622,13 +573,11 @@ function initEvents() {
     nextPageBtn.addEventListener('click', (e) => {
       e.preventDefault();
       if (isMobile()) {
-        // Lazy-load more
         if (mobileVisibleCount < filteredIncidents.length) {
           mobileVisibleCount += UI_CONFIG.pageSize;
           renderIncidents();
         }
       } else {
-        // Desktop pagination
         const totalPages = Math.max(
           1,
           Math.ceil(filteredIncidents.length / UI_CONFIG.pageSize)
@@ -642,13 +591,11 @@ function initEvents() {
   }
 
   window.addEventListener('resize', () => {
-    // Reset paging mode when crossing breakpoint
     currentPage = 1;
     mobileVisibleCount = UI_CONFIG.pageSize;
     renderIncidents();
   });
 
-  // Newsletter dummy handler to prevent page reload
   const newsletterForm = document.getElementById('newsletter-form');
   const newsletterMsg = document.getElementById('newsletter-message');
   if (newsletterForm && newsletterMsg) {
@@ -700,11 +647,9 @@ async function loadIncidents() {
       return;
     }
 
-    // Initialize sort & filters now that we have data
     initSortControl();
     initDynamicFilters();
 
-    // Default sort by date descending (most recent)
     currentSort = 'date_desc';
     filteredIncidents = sortIncidents(safeIncidents);
 
