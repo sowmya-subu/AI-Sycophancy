@@ -1792,13 +1792,7 @@ def add_taxonomy_keywords(incidents: List[Dict], use_embeddings: bool = True) ->
         # Classify article
         keywords = classify_article_taxonomy(title, summary, model)
 
-   for i, incident in enumerate(incidents):
-        title = incident.get('title', '')
-        summary = incident.get('summary', '')
-        
-        # Classify article
-        keywords = classify_article_taxonomy(title, summary, model)
-        
+   
         # Store keywords array
         incident['keywords'] = ', '.join(keywords)
         incident['keywords_array'] = keywords
@@ -1811,11 +1805,6 @@ def add_taxonomy_keywords(incidents: List[Dict], use_embeddings: bool = True) ->
         incident['behavior_type'] = next((k for k in keywords if k in behavior_types), '')
         incident['impact_domain'] = next((k for k in keywords if k in impact_domains), '')
         incident['auto_severity'] = next((k for k in keywords if k in severity_levels), '')
-        
-        # Keywords are computed but not stored in output
-        # (Commented out - keywords not written to CSV/JSON)
-        # incident['keywords'] = ', '.join(keywords)
-        # incident['keywords_array'] = keywords
         
         classified_count += 1
         if (i + 1) % 50 == 0:
