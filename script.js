@@ -6,12 +6,37 @@
 const INCIDENTS_URL = 'incidents.json';
 
 const SAFE_DISPLAY_CONFIG = {
+  // Only show incidents that meet all these by default
   requireReviewed: true,
-  reviewStatusField: 'status',
-  reviewedValues: ['discovered'],
-  minRelevancyScore: 0.40,
-  excludedSources: ['arXiv', 'Hacker News'],
+  reviewStatusField: 'status', // or 'status' if you change schema
+  reviewedValues: ['discovered'], //change to ['approved', 'reviewed'] 
+  minRelevancyScore: 0.40, // default threshold 40.0, but relevancy score is between 0 and 1
+  excludedSources: ['arXiv', 'Hacker News'], // configurable, exact match on source field
 };
+
+const TRUSTED_SOURCE_PATTERNS = [
+  'nature',
+  'bmc psychiatry',
+  'cnn',
+  'pbs',
+  'guardian',
+  'washington post',
+  'forbes',
+  'new scientist',
+  'cbc',
+  'ctv news',
+  'business insider',
+  'ars technica',
+  'engadget',
+  'zdnet',
+  'india today',
+  'times of india',
+  'psychology today',
+  'fast company',
+  'wbur',
+  'yahoo',
+  'the mirror',
+];
 
 const UI_CONFIG = {
   pageSize: 6,
@@ -24,19 +49,16 @@ const UI_CONFIG = {
 let allIncidents = [];
 let safeIncidents = [];
 let filteredIncidents = [];
-
-let currentSort = 'date_desc';
 let currentPage = 1;
 let mobileVisibleCount = UI_CONFIG.pageSize;
 
-let sourceOptions = [];
-let vulnerableOptions = [];
-
-// Cached DOM refs
+// Cached DOM references
 const incidentGrid = document.getElementById('incident-grid');
 const pageInfoEl = document.getElementById('page-info');
 const prevPageBtn = document.getElementById('prev-page');
 const nextPageBtn = document.getElementById('next-page');
+const showMoreBtn = document.getElementById('show-more-mobile');
+const sortContainer = document.getElementById('sort-container');
 const searchInput = document.getElementById('search-input');
 const searchButton = document.getElementById('search-button');
 const fromDateInput = document.getElementById('filter-from');
@@ -65,65 +87,30 @@ function parseDate(value) {
 }
 
 function getRelevancy(incident) {
+  // Support both relevancy_score and relevance_score just in case
   if (typeof incident.relevancy_score === 'number') return incident.relevancy_score;
   if (typeof incident.relevance_score === 'number') return incident.relevance_score;
   return null;
 }
 
-// Clean "Google News: AI sycophancy 2023" -> "Google News"
-function cleanSource(str) {
-  if (!str) return 'Unknown source';
-  return str.split(':')[0].trim();
-}
-
-// Extract "Psychology Today" from
-// "When ... delusional thinking can result. - Psychology Today"
-function splitTitleAndSource(title, fallbackSource) {
-  let cleanTitle = title || 'Untitled incident';
-  let source = fallbackSource || 'Unknown source';
-
-  if (!title) {
-    return { title: cleanTitle, source };
-  }
-
-  const separators = [' - ', ' – '];
-  for (const sep of separators) {
-    const idx = title.lastIndexOf(sep);
-    if (idx > -1 && idx < title.length - sep.length) {
-      const base = title.slice(0, idx).trim();
-      const candidate = title.slice(idx + sep.length).trim();
-      if (candidate) {
-        cleanTitle = base || cleanTitle;
-        source = candidate;
-        break;
-      }
-    }
-  }
-
-  return { title: cleanTitle, source };
-}
-
-// Decide if summary is basically the same as title
-function areTextsSimilar(title, summary) {
-  const t = (title || '').toLowerCase().trim();
-  const s = (summary || '').toLowerCase().trim();
-  if (!t || !s) return false;
-  if (t === s) return true;
-  if (s.startsWith(t) || t.startsWith(s)) return true;
-  if (Math.abs(t.length - s.length) < 25 && (t.includes(s) || s.includes(t))) {
-    return true;
-  }
-  return false;
-}
-
 function passesSafeDisplay(incident) {
-  if (
-    SAFE_DISPLAY_CONFIG.excludedSources.length > 0 &&
-    SAFE_DISPLAY_CONFIG.excludedSources.includes(incident.source)
-  ) {
+  const sourceName = safeLower(incident.source);
+
+  // Exclude sources
+  const excluded = SAFE_DISPLAY_CONFIG.excludedSources.map(safeLower);
+  if (excluded.length > 0 && excluded.includes(sourceName)) {
     return false;
   }
 
+  // Trusted sources allowlist
+  if (TRUSTED_SOURCE_PATTERNS.length > 0) {
+    const isTrusted = TRUSTED_SOURCE_PATTERNS.some((pattern) =>
+      sourceName.includes(pattern)
+    );
+    if (!isTrusted) return false;
+  }
+
+  // Relevancy threshold
   const score = getRelevancy(incident);
   if (
     SAFE_DISPLAY_CONFIG.minRelevancyScore != null &&
@@ -133,6 +120,7 @@ function passesSafeDisplay(incident) {
     return false;
   }
 
+  // Review status
   if (SAFE_DISPLAY_CONFIG.requireReviewed) {
     const fieldName = SAFE_DISPLAY_CONFIG.reviewStatusField;
     const statusValue = safeLower(incident[fieldName]);
@@ -144,31 +132,35 @@ function passesSafeDisplay(incident) {
   return true;
 }
 
+function deriveSource(raw) {
+  const rawSource = (raw.source || '').toString().trim();
+  if (!rawSource) return 'Unknown source';
+
+  // For Google News aggregator, the original source is at the end of the title after " - "
+  if (rawSource.toLowerCase().includes('google news') && raw.title) {
+    const title = raw.title.toString();
+    const parts = title.split(' - ');
+    if (parts.length > 1) {
+      const candidate = parts[parts.length - 1].trim();
+      if (candidate) return candidate;
+    }
+  }
+
+  return rawSource;
+}
+
 function normalizeIncident(raw, index) {
   const publication_date =
     raw.publication_date || raw.date || raw.published_at || raw.published || null;
 
   const relevancy_score = getRelevancy(raw);
-
-  const baseTitle = raw.title || 'Untitled incident';
-  const originalSourceRaw = raw.source || 'Unknown source';
-  const cleanedOriginalSource = cleanSource(originalSourceRaw);
-
-  let finalTitle = baseTitle;
-  let finalSourceRaw = originalSourceRaw;
-
-  // Only try to pull real outlet from title for Google News
-  if (cleanedOriginalSource.toLowerCase() === 'google news') {
-    const split = splitTitleAndSource(baseTitle, originalSourceRaw);
-    finalTitle = split.title;
-    finalSourceRaw = split.source || originalSourceRaw;
-  }
+  const source = deriveSource(raw);
 
   return {
     id: raw.id || raw.slug || raw.url || `incident-${index}`,
-    title: finalTitle,
+    title: raw.title || 'Untitled incident',
     url: raw.url || '#',
-    source: cleanSource(finalSourceRaw),
+    source,
     summary: raw.summary || '',
     publication_date,
     vulnerable_populations:
@@ -194,49 +186,65 @@ function showMessage(message, variant = 'info') {
 
 function updateFooterYear() {
   const yearEl = document.getElementById('year');
-  if (yearEl) {
-    yearEl.textContent = new Date().getFullYear();
-  }
+  if (!yearEl) return;
+  yearEl.textContent = new Date().getFullYear();
 }
 
 // -------------------------
-// Sort & Filter Logic
+// Filtering & sorting
 // -------------------------
 function sortIncidents(list) {
-  const sorted = [...list];
+  if (!sortSelect) return list;
 
-  sorted.sort((a, b) => {
-    if (currentSort === 'date_desc' || currentSort === 'date_asc') {
-      const da = parseDate(a.publication_date);
-      const db = parseDate(b.publication_date);
+  const value = sortSelect.value;
+  const arr = [...list];
 
-      const ta = da ? da.getTime() : 0;
-      const tb = db ? db.getTime() : 0;
+  switch (value) {
+    case 'date-desc':
+      arr.sort((a, b) => {
+        const da = parseDate(a.publication_date);
+        const db = parseDate(b.publication_date);
+        if (!da && !db) return 0;
+        if (!da) return 1;
+        if (!db) return -1;
+        return db - da;
+      });
+      break;
+    case 'date-asc':
+      arr.sort((a, b) => {
+        const da = parseDate(a.publication_date);
+        const db = parseDate(b.publication_date);
+        if (!da && !db) return 0;
+        if (!da) return 1;
+        if (!db) return -1;
+        return da - db;
+      });
+      break;
+    case 'relevancy-desc':
+      arr.sort((a, b) => {
+        const ra = getRelevancy(a) ?? -Infinity;
+        const rb = getRelevancy(b) ?? -Infinity;
+        return rb - ra;
+      });
+      break;
+    case 'relevancy-asc':
+      arr.sort((a, b) => {
+        const ra = getRelevancy(a) ?? Infinity;
+        const rb = getRelevancy(b) ?? Infinity;
+        return ra - rb;
+      });
+      break;
+    default:
+      break;
+  }
 
-      return currentSort === 'date_desc' ? tb - ta : ta - tb;
-    }
-
-    if (currentSort === 'relevance_desc' || currentSort === 'relevance_asc') {
-      const sa = getRelevancy(a) ?? -Infinity;
-      const sb = getRelevancy(b) ?? -Infinity;
-
-      return currentSort === 'relevance_desc' ? sb - sa : sa - sb;
-    }
-
-    return 0;
-  });
-
-  return sorted;
+  return arr;
 }
 
 function applyFiltersAndSort() {
-  if (!safeIncidents.length) {
-    filteredIncidents = [];
-    renderIncidents();
-    return;
-  }
+  if (!safeIncidents || safeIncidents.length === 0) return;
 
-  const query = safeLower(searchInput?.value || '');
+  const query = safeLower(searchInput?.value || '').trim();
   const fromDate = parseDate(fromDateInput?.value);
   const toDate = parseDate(toDateInput?.value);
 
@@ -246,6 +254,7 @@ function applyFiltersAndSort() {
     : '';
 
   let list = safeIncidents.filter((incident) => {
+    // Search text
     if (query) {
       const text = [
         incident.title,
@@ -259,12 +268,17 @@ function applyFiltersAndSort() {
       if (!text.includes(query)) return false;
     }
 
+    // Date range
     const d = parseDate(incident.publication_date);
     if (fromDate && d && d < fromDate) return false;
     if (toDate && d && d > toDate) return false;
 
-    if (selectedSource && incident.source !== selectedSource) return false;
+    // Source filter
+    if (selectedSource) {
+      if (incident.source !== selectedSource) return false;
+    }
 
+    // Vulnerable population filter
     if (selectedVuln) {
       const vp = (incident.vulnerable_populations || '')
         .split(',')
@@ -278,6 +292,7 @@ function applyFiltersAndSort() {
   list = sortIncidents(list);
   filteredIncidents = list;
 
+  // Reset paging
   currentPage = 1;
   mobileVisibleCount = UI_CONFIG.pageSize;
 
@@ -301,10 +316,23 @@ function createIncidentCard(incident) {
   const summary = incident.summary || '';
   const vuln = incident.vulnerable_populations || '';
 
-  const hideSummary =
-    !summary ||
-    summary.trim().length < 5 ||
-    areTextsSimilar(title, summary);
+  const trimmedSummary = summary.trim();
+  let finalSummary = trimmedSummary;
+
+  const titleLc = safeLower(title).trim();
+  const sumLc = safeLower(trimmedSummary).trim();
+
+  if (titleLc && sumLc) {
+    const minLen = Math.min(titleLc.length, sumLc.length);
+    const maxLen = Math.max(titleLc.length, sumLc.length) || 1;
+    const lengthRatio = minLen / maxLen;
+    const contains =
+      titleLc.includes(sumLc) || sumLc.includes(titleLc);
+
+    if (sumLc === titleLc || (lengthRatio > 0.75 && contains)) {
+      finalSummary = '';
+    }
+  }
 
   card.innerHTML = `
     <div class="incident-card-main">
@@ -314,13 +342,13 @@ function createIncidentCard(incident) {
         <span class="incident-date">${dateText}</span>
       </div>
       ${
-        hideSummary
-          ? ''
-          : `<p class="incident-summary">${summary}</p>`
+        finalSummary
+          ? `<p class="incident-summary">${finalSummary}</p>`
+          : ''
       }
       ${
         vuln
-          ? `<p class="incident-vulnerable"><strong>Keywords:</strong> ${vuln}</p>`
+          ? `<p class="incident-vulnerable"><strong>Vulnerable populations:</strong> ${vuln}</p>`
           : ''
       }
     </div>
@@ -334,6 +362,7 @@ function createIncidentCard(incident) {
 
   // Entire card click takes you to article
   card.addEventListener('click', (e) => {
+    // Avoid double-activating when clicking buttons
     const target = e.target;
     if (
       target.closest('.copy-link') ||
@@ -346,12 +375,21 @@ function createIncidentCard(incident) {
     }
   });
 
+  // Keyboard accessibility (enter key triggers click)
+  card.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      card.click();
+    }
+  });
+
   // Copy link
   const copyBtn = card.querySelector('.copy-link');
   if (copyBtn) {
     copyBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       if (!incident.url) return;
+
       navigator.clipboard
         .writeText(incident.url)
         .then(() => {
@@ -378,6 +416,7 @@ function renderIncidents() {
   }
 
   if (isMobile()) {
+    // Lazy-load vertical list
     const count = Math.min(mobileVisibleCount, filteredIncidents.length);
     const items = filteredIncidents.slice(0, count);
 
@@ -390,16 +429,20 @@ function renderIncidents() {
       pageInfoEl.textContent = `Showing ${count} of ${filteredIncidents.length}`;
     }
 
-    if (prevPageBtn) {
-      prevPageBtn.style.display = 'none';
+    if (showMoreBtn) {
+      if (count >= filteredIncidents.length) {
+        showMoreBtn.style.display = 'none';
+      } else {
+        showMoreBtn.style.display = 'inline-flex';
+      }
     }
-    if (nextPageBtn) {
-      nextPageBtn.style.display = 'inline-flex';
-      nextPageBtn.textContent =
-        count < filteredIncidents.length ? 'Load more' : 'No more results';
-      nextPageBtn.disabled = count >= filteredIncidents.length;
+
+    if (prevPageBtn && nextPageBtn) {
+      prevPageBtn.style.display = 'none';
+      nextPageBtn.style.display = 'none';
     }
   } else {
+    // Desktop pagination
     const totalPages = Math.max(
       1,
       Math.ceil(filteredIncidents.length / UI_CONFIG.pageSize)
@@ -426,6 +469,10 @@ function renderIncidents() {
       nextPageBtn.disabled = currentPage >= totalPages;
       nextPageBtn.textContent = 'Next';
     }
+
+    if (showMoreBtn) {
+      showMoreBtn.style.display = 'none';
+    }
   }
 }
 
@@ -437,37 +484,36 @@ function initSortControl() {
   if (!sectionHeader) return;
 
   const wrapper = document.createElement('div');
-  wrapper.className = 'sort-wrapper';
+  wrapper.className = 'sort-control';
 
   const label = document.createElement('label');
-  label.setAttribute('for', 'sort-by');
   label.textContent = 'Sort by';
 
   const select = document.createElement('select');
-  select.id = 'sort-by';
-  select.className = 'input sort-select';
   select.innerHTML = `
-    <option value="date_desc">Most recent</option>
-    <option value="date_asc">Oldest first</option>
-    <option value="relevance_desc">Highest relevance</option>
-    <option value="relevance_asc">Lowest relevance</option>
+    <option value="date-desc">Most recent</option>
+    <option value="date-asc">Oldest first</option>
+    <option value="relevancy-desc">Most relevant</option>
+    <option value="relevancy-asc">Least relevant</option>
   `;
+
+  select.value = 'date-desc';
+  select.addEventListener('change', applyFiltersAndSort);
 
   wrapper.appendChild(label);
   wrapper.appendChild(select);
+
+  // insert into header right side
   sectionHeader.appendChild(wrapper);
 
   sortSelect = select;
-  sortSelect.addEventListener('change', () => {
-    currentSort = sortSelect.value;
-    applyFiltersAndSort();
-  });
 }
 
 function initDynamicFilters() {
   const advancedGrid = document.querySelector('#search .advanced-grid');
   if (!advancedGrid) return;
 
+  // Build options from safeIncidents
   const sources = new Set();
   const vulns = new Set();
 
@@ -482,23 +528,26 @@ function initDynamicFilters() {
     }
   });
 
-  sourceOptions = Array.from(sources).sort();
-  vulnerableOptions = Array.from(vulns).sort();
+  const sourceOptions = Array.from(sources).sort((a, b) =>
+    a.localeCompare(b)
+  );
+  const vulnerableOptions = Array.from(vulns).sort((a, b) =>
+    a.localeCompare(b)
+  );
 
-  if (sourceOptions.length > 0) {
+  // Only build filters if there's more than one option
+  if (sourceOptions.length > 1) {
     const field = document.createElement('div');
     field.className = 'field';
 
     const label = document.createElement('label');
-    label.setAttribute('for', 'filter-source');
     label.textContent = 'Source';
 
     const select = document.createElement('select');
-    select.id = 'filter-source';
-    select.className = 'input';
-    select.innerHTML =
-      '<option value="">Any</option>' +
-      sourceOptions.map((s) => `<option value="${s}">${s}</option>`).join('');
+    select.innerHTML = `
+      <option value="">All sources</option>
+      ${sourceOptions.map((s) => `<option value="${s}">${s}</option>`).join('')}
+    `;
 
     field.appendChild(label);
     field.appendChild(select);
@@ -513,14 +562,11 @@ function initDynamicFilters() {
     field.className = 'field';
 
     const label = document.createElement('label');
-    label.setAttribute('for', 'filter-vulnerable');
-    label.textContent = 'Keywords';
+    label.textContent = 'Vulnerable population';
 
     const select = document.createElement('select');
-    select.id = 'filter-vulnerable';
-    select.className = 'input';
     select.innerHTML =
-      '<option value="">Any</option>' +
+      '<option value="">All</option>' +
       vulnerableOptions.map((v) => `<option value="${v}">${v}</option>`).join('');
 
     field.appendChild(label);
@@ -537,14 +583,12 @@ function initDynamicFilters() {
 // -------------------------
 function initEvents() {
   if (searchButton && searchInput) {
-    searchButton.addEventListener('click', (e) => {
-      e.preventDefault();
+    searchButton.addEventListener('click', () => {
       applyFiltersAndSort();
     });
 
     searchInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
-        e.preventDefault();
         applyFiltersAndSort();
       }
     });
@@ -559,9 +603,7 @@ function initEvents() {
   }
 
   if (prevPageBtn) {
-    prevPageBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      if (isMobile()) return;
+    prevPageBtn.addEventListener('click', () => {
       if (currentPage > 1) {
         currentPage -= 1;
         renderIncidents();
@@ -570,14 +612,33 @@ function initEvents() {
   }
 
   if (nextPageBtn) {
-    nextPageBtn.addEventListener('click', (e) => {
-      e.preventDefault();
+    nextPageBtn.addEventListener('click', () => {
+      if (!filteredIncidents || filteredIncidents.length === 0) return;
+      const totalPages = Math.max(
+        1,
+        Math.ceil(filteredIncidents.length / UI_CONFIG.pageSize)
+      );
+      if (currentPage < totalPages) {
+        currentPage += 1;
+        renderIncidents();
+      }
+    });
+  }
+
+  if (showMoreBtn) {
+    showMoreBtn.addEventListener('click', () => {
+      if (!filteredIncidents || filteredIncidents.length === 0) return;
+
       if (isMobile()) {
-        if (mobileVisibleCount < filteredIncidents.length) {
-          mobileVisibleCount += UI_CONFIG.pageSize;
-          renderIncidents();
+        // Show more in vertical list
+        mobileVisibleCount += UI_CONFIG.pageSize;
+        if (mobileVisibleCount >= filteredIncidents.length) {
+          mobileVisibleCount = filteredIncidents.length;
+          showMoreBtn.style.display = 'none';
         }
+        renderIncidents();
       } else {
+        // Desktop pagination
         const totalPages = Math.max(
           1,
           Math.ceil(filteredIncidents.length / UI_CONFIG.pageSize)
@@ -590,25 +651,10 @@ function initEvents() {
     });
   }
 
+  // Re-render on resize to switch between mobile/desktop modes cleanly
   window.addEventListener('resize', () => {
-    currentPage = 1;
-    mobileVisibleCount = UI_CONFIG.pageSize;
     renderIncidents();
   });
-
-  const newsletterForm = document.getElementById('newsletter-form');
-  const newsletterMsg = document.getElementById('newsletter-message');
-  if (newsletterForm && newsletterMsg) {
-    newsletterForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const emailInput = document.getElementById('newsletter-email');
-      const email = emailInput?.value || '';
-      if (!email) return;
-      newsletterMsg.textContent =
-        'Thanks for your interest. Newsletter functionality is not yet implemented.';
-      newsletterForm.reset();
-    });
-  }
 }
 
 // -------------------------
@@ -629,14 +675,15 @@ async function loadIncidents() {
       throw new Error(`HTTP ${res.status}`);
     }
 
-    const data = await res.json();
-
-    if (!Array.isArray(data) || data.length === 0) {
+    const rawData = await res.json();
+    if (!Array.isArray(rawData)) {
       showMessage('No sycophancy related incidents found', 'info');
       return;
     }
 
-    allIncidents = data.map(normalizeIncident);
+    allIncidents = rawData.map(normalizeIncident);
+
+    // Apply the safety gate (reviewed + relevancy + source rules)
     safeIncidents = allIncidents.filter(passesSafeDisplay);
 
     if (safeIncidents.length === 0) {
@@ -647,12 +694,16 @@ async function loadIncidents() {
       return;
     }
 
+    // Initialize sort & filters now that we have data
     initSortControl();
     initDynamicFilters();
 
-    currentSort = 'date_desc';
-    filteredIncidents = sortIncidents(safeIncidents);
+    // Default sort by date descending (most recent)
+    if (sortSelect) {
+      sortSelect.value = 'date-desc';
+    }
 
+    applyFiltersAndSort();
     renderIncidents();
   } catch (err) {
     console.error('Error loading incidents:', err);
