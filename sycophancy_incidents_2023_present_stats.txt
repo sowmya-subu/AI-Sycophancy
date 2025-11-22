@@ -1,53 +1,53 @@
 ================================================================================
 SUMMARY STATISTICS (2023-Present)
-Generated: 2025-11-21 21:56:50
+Generated: 2025-11-22 01:26:42
 ================================================================================
 
 Total unique incidents: 1018
 
 Incidents by Year:
-  - 2023: 2
+  - 2023: 1
   - 2024: 1
-  - 2025: 933
+  - 2025: 935
 
 2025 by Month:
   - April: 7
   - May: 6
-  - June: 2
+  - June: 1
   - July: 4
-  - August: 2
-  - October: 11
-  - November: 901
+  - August: 3
+  - October: 12
+  - November: 902
 
 Vulnerable Populations Mentioned:
   - elderly: 115
   - medical: 87
-  - minors: 43
-  - mental_health: 29
+  - minors: 44
+  - mental_health: 30
 
 Top Sources:
   - arXiv: 901
-  - Google News: AI sycophancy: 32
+  - Google News: AI sycophancy: 26
   - Google News: AI flattery issue: 18
   - Hacker News: 17
-  - Google News: AI sycophancy 2024: 10
-  - Google News: sycophantic AI: 9
-  - Google News: AI sycophancy 2023: 8
-  - Google News: AI chatbot dangerous advice: 7
-  - Google News: Gemini AI flattery: 5
+  - Google News: AI sycophancy 2023: 10
+  - Google News: sycophantic AI: 10
+  - Google News: AI sycophancy 2024: 9
+  - Google News: AI chatbot dangerous advice: 8
+  - Google News: AI sycophancy research 2023: 3
+  - Google News: Gemini AI flattery: 3
   - Google News: AI validation delusion: 2
+  - Google News: Claude sycophancy: 2
+  - Google News: ChatGPT mental health harm: 2
   - Google News: AI agrees with everything: 2
-  - Google News: Claude sycophancy: 1
   - Google News: AI therapy problem: 1
-  - Google News: Google DeepMind sycophancy: 1
-  - Google News: Anthropic sycophancy study: 1
 
-Date Range: 2023-12-10 to 2025-11-20
+Date Range: 2023-12-14 to 2025-11-21
 
 Relevancy Score Statistics:
   Average: 0.1771
-  Median: 0.1602
-  Top 10 scores: 0.7580, 0.7453, 0.6979, 0.6979, 0.6933, 0.6843, 0.6810, 0.6773, 0.6659, 0.6585
+  Median: 0.1594
+  Top 10 scores: 0.7580, 0.7453, 0.6979, 0.6979, 0.6942, 0.6843, 0.6810, 0.6773, 0.6659, 0.6585
   Articles sorted by relevancy score (highest first)
 
 Credibility Score Statistics:
@@ -56,9 +56,9 @@ Credibility Score Statistics:
   Top 10 scores: 0.5967, 0.5073, 0.5069, 0.4785, 0.4687, 0.4684, 0.4590, 0.4548, 0.4521, 0.4423
 
 Credibility by Source Tier:
-  tier_1 (Academic research papers): 901 articles, avg credibility: 0.1407
+  tier_1 (Academic research papers): 901 articles, avg credibility: 0.1406
   tier_3 (Community discussions and forums): 17 articles, avg credibility: 0.3293
-  tier_4 (News aggregators and other sources): 100 articles, avg credibility: 0.2338
+  tier_4 (News aggregators and other sources): 100 articles, avg credibility: 0.2337
 
 Research papers with DOI: 25
   Average credibility with DOI: 0.1978
