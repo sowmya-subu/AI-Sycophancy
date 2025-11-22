@@ -1,5 +1,5 @@
 :root {
-  --bg: #f4f5fb;
+  --bg: #ffffff;           /* was #f4f5fb */
   --bg-card: #ffffff;
   --border: #e2e8f0;
   --text-main: #0f172a;
@@ -16,9 +16,11 @@
 
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Segoe UI", Roboto, sans-serif;
   background: var(--bg);
   color: var(--text-main);
+  line-height: 1.6;
 }
 
 .page {
@@ -46,6 +48,7 @@ body {
 .site-title {
   font-size: 24px;
   margin: 0;
+  letter-spacing: 0.01em;
 }
 
 .site-subtitle {
@@ -86,6 +89,7 @@ body {
   flex-direction: column;
   gap: 16px;
 }
+
 .banner-image {
   width: 100%;
   height: 200px;
@@ -96,13 +100,14 @@ body {
 .banner-img {
   width: 100%;
   height: 100%;
-  object-fit: cover;         /* fills container */
-  object-position: center;   /* keeps focus in center */
+  object-fit: cover;
+  object-position: center;
   display: block;
 }
+
 .banner-text h2 {
   margin: 0 0 8px;
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 600;
 }
 
@@ -123,7 +128,7 @@ body {
   margin: 0 auto;
 }
 
-/* Cards */
+/* Cards (generic) */
 
 .card {
   background: var(--bg-card);
@@ -230,35 +235,161 @@ body {
 /* Incidents */
 
 .incident-grid {
-  margin-top: 8px;
+  margin-top: 12px;
   display: grid;
-  gap: 8px;
+  gap: 20px; /* more whitespace between cards */
 }
 
 .incident-card {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  background: #ffffff;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.06); /* soft border */
+  padding: 16px 18px;
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.03);
+  transition: transform 0.15s ease, box-shadow 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.incident-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 35px rgba(15, 23, 42, 0.06);
+  border-color: rgba(37, 99, 235, 0.35);
 }
 
 .incident-title {
   margin: 0 0 4px;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
-.incident-summary {
-  margin: 0 0 8px;
-  font-size: 13px;
+/* Meta row (source + date) */
+.incident-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 11px;
   color: var(--text-muted);
 }
 
-.incident-link {
-  font-size: 12px;
-  color: var(--accent);
-  text-decoration: underline;
-  text-underline-offset: 2px;
+.incident-source::before {
+  content: "• ";
+  margin-right: 2px;
 }
+
+.incident-summary {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: #111827;
+}
+
+.incident-vulnerable {
+  margin: 2px 0 0;
+  font-size: 12px; /* smaller than title */
+  color: #4b5563;
+}
+
+.incident-vulnerable strong {
+  font-weight: 600;
+  color: #374151;
+}
+
+/* “no incidents” / error messages */
+.incident-message {
+  padding: 16px 18px;
+  border-radius: 12px;
+  border: 1px dashed var(--border);
+  background: #f9fafb;
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* Actions */
+
+.incident-actions {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* View article button */
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid #1d4ed8;
+  background-color: #1d4ed8;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.button-link:hover {
+  background-color: #1e40af;
+  border-color: #1e40af;
+  box-shadow: 0 10px 25px rgba(37, 99, 235, 0.3);
+}
+
+/* Icon-only copy button */
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.7);
+  background-color: #ffffff;
+  cursor: pointer;
+  padding: 0;
+  font-size: 0.9rem;
+  transition: background-color 0.15s ease, border-color 0.15s ease,
+    transform 0.1s ease;
+}
+
+.icon-button .icon {
+  pointer-events: none;
+}
+
+.icon-button:hover {
+  background-color: #eff6ff;
+  border-color: #3b82f6;
+  transform: translateY(-1px);
+}
+
+.icon-button.copied {
+  background-color: #dcfce7;
+  border-color: #22c55e;
+}
+
+/* old link-button still here in case anything uses it */
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.link-button:hover {
+  color: var(--text-main);
+}
+
+/* Tags (if you ever use them) */
 
 .tags {
   margin-top: 8px;
@@ -275,38 +406,10 @@ body {
   color: var(--text-muted);
 }
 
-.incident-footer {
-  margin-top: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.incident-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.link-button {
-  background: none;
-  border: none;
-  padding: 0;
-  cursor: pointer;
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.link-button:hover {
-  color: var(--text-main);
-}
-
 /* Pagination */
 
 .pagination {
-  margin-top: 10px;
+  margin-top: 12px;
   display: flex;
   justify-content: flex-end;
   gap: 6px;
@@ -375,6 +478,7 @@ body {
 }
 
 /* Collapsible sections (Why Track + Methodology) */
+
 .collapsible details {
   margin: 0;
 }
@@ -457,7 +561,7 @@ body {
   }
 
   .incident-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   }
 
   .advanced-grid {
@@ -476,4 +580,3 @@ section {
   margin-top: 20px;
   margin-bottom: 20px;
 }
-
