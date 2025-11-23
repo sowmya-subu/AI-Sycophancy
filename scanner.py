@@ -380,7 +380,7 @@ SOURCE_TIERS = {
             'TechCrunch', 'The Verge', 'Ars Technica', 
             'VentureBeat', 'Wired', 'MIT Tech Review AI',
             'Reuters Tech', 'BBC Technology', 'NPR Technology',
-            'Partnership on AI'
+            'Partnership on AI', 'The Guardian', 'Yahoo'
         ],
         'weight': 0.8,
         'description': 'Established news and tech publications'
@@ -1523,9 +1523,35 @@ def _compute_scores_with_tfidf(incidents: List[Dict]) -> List[Dict]:
     
     return incidents
 
-def assign_source_tier(source: str) -> tuple[str, float]:
+def extract_publisher_from_title(title: str) -> Optional[str]:
+    """
+    Extract publisher name from article title (part after last ' - ').
+    Used to identify reputable sources even when they come through Google News.
+    
+    Example:
+        "Article Title - The Guardian" -> "The Guardian"
+        "Article Title - Yahoo" -> "Yahoo"
+    """
+    if not title:
+        return None
+    
+    # Find the last " - " separator
+    last_separator = title.rfind(' - ')
+    if last_separator > 0:
+        publisher = title[last_separator + 3:].strip()
+        return publisher if publisher else None
+    
+    return None
+
+
+def assign_source_tier(source: str, title: str = '') -> tuple[str, float]:
     """
     Assign tier and weight to a source.
+    Also checks title for reputable publishers (The Guardian, Yahoo, etc.)
+    
+    Args:
+        source: Source string (e.g., "Google News: AI sycophancy")
+        title: Article title (optional, used to extract publisher)
     
     Returns:
         (tier_name: str, weight: float)
@@ -1538,6 +1564,34 @@ def assign_source_tier(source: str) -> tuple[str, float]:
     if source == 'Hacker News':
         return 'tier_3', 0.6
     
+    # Extract publisher from title if available (for Google News articles)
+    publisher = None
+    if title:
+        publisher = extract_publisher_from_title(title)
+    
+    # Reputable sources that should be tier_2 even when coming through Google News
+    reputable_publishers = [
+        'The Guardian', 'Guardian',  # The Guardian (UK)
+        'Yahoo', 'Yahoo News',  # Yahoo
+        'BBC', 'BBC News',  # BBC
+        'Reuters',  # Reuters
+        'The New York Times', 'NYT',  # NYT
+        'The Washington Post', 'Washington Post',  # WaPo
+        'CNN',  # CNN
+        'Forbes',  # Forbes
+        'TechCrunch',  # TechCrunch
+        'The Verge',  # The Verge
+        'Ars Technica',  # Ars Technica
+        'Wired',  # Wired
+        'MIT Technology Review', 'MIT Tech Review',  # MIT Tech Review
+    ]
+    
+    # Check if publisher from title is reputable
+    if publisher:
+        for reputable in reputable_publishers:
+            if reputable.lower() in publisher.lower():
+                return 'tier_2', 0.8
+    
     # Check if it's Google News (any variant)
     if source.startswith('Google News'):
         return 'tier_4', 0.5
@@ -1547,7 +1601,7 @@ def assign_source_tier(source: str) -> tuple[str, float]:
         'TechCrunch', 'The Verge', 'Ars Technica', 
         'VentureBeat', 'Wired', 'MIT Tech Review AI',
         'Reuters Tech', 'BBC Technology', 'NPR Technology',
-        'Partnership on AI'
+        'Partnership on AI', 'The Guardian', 'Yahoo'
     ]
     if source in tier_2_sources:
         return 'tier_2', 0.8
@@ -1590,9 +1644,10 @@ def add_credibility_scores(incidents: List[Dict]) -> List[Dict]:
     """
     for incident in incidents:
         source = incident.get('source', '')
+        title = incident.get('title', '')
         
-        # Assign source tier
-        tier_name, tier_weight = assign_source_tier(source)
+        # Assign source tier (pass title to detect reputable publishers)
+        tier_name, tier_weight = assign_source_tier(source, title)
         incident['source_tier'] = tier_name
         incident['tier_weight'] = tier_weight
         
@@ -1791,19 +1846,12 @@ def add_taxonomy_keywords(incidents: List[Dict], use_embeddings: bool = True) ->
         
         # Classify article
         keywords = classify_article_taxonomy(title, summary, model)
-
-   for i, incident in enumerate(incidents):
-        title = incident.get('title', '')
-        summary = incident.get('summary', '')
-        
-        # Classify article
-        keywords = classify_article_taxonomy(title, summary, model)
         
         # Store keywords array
         incident['keywords'] = ', '.join(keywords)
         incident['keywords_array'] = keywords
         
-        # **NEW: Extract and store separate taxonomy fields**
+        # Extract and store separate taxonomy fields
         behavior_types = {'validation', 'flattery', 'agreement', 'reward_hacking'}
         impact_domains = {'mental_health', 'medical', 'therapy', 'general'}
         severity_levels = {'critical', 'high', 'medium', 'low'}
@@ -1811,11 +1859,6 @@ def add_taxonomy_keywords(incidents: List[Dict], use_embeddings: bool = True) ->
         incident['behavior_type'] = next((k for k in keywords if k in behavior_types), '')
         incident['impact_domain'] = next((k for k in keywords if k in impact_domains), '')
         incident['auto_severity'] = next((k for k in keywords if k in severity_levels), '')
-        
-        # Keywords are computed but not stored in output
-        # (Commented out - keywords not written to CSV/JSON)
-        # incident['keywords'] = ', '.join(keywords)
-        # incident['keywords_array'] = keywords
         
         classified_count += 1
         if (i + 1) % 50 == 0:
@@ -1867,12 +1910,111 @@ def load_existing_incidents(csv_file: str, json_file: str) -> List[Dict]:
     return existing_incidents
 
 
+def extract_title_prefix(title: str) -> str:
+    """
+    Extract the title prefix (part before the last '-').
+    Used to identify duplicate articles with same content but different publishers.
+    
+    Example:
+        "Article Title - Publisher Name" -> "Article Title"
+        "Article Title" -> "Article Title" (no dash)
+    """
+    if not title:
+        return ""
+    
+    # Find the last dash that's likely a separator (has space before and after)
+    # Look for pattern: " - " (space-dash-space)
+    last_separator = title.rfind(' - ')
+    if last_separator > 0:
+        return title[:last_separator].strip()
+    
+    return title.strip()
+
+
+def deduplicate_by_title_prefix(incidents: List[Dict]) -> List[Dict]:
+    """
+    Deduplicate incidents by title prefix (before '-').
+    If multiple articles have the same title prefix, keep the one with highest credibility.
+    
+    Args:
+        incidents: List of incident dictionaries
+    
+    Returns:
+        Deduplicated list keeping most reputable version of each title prefix
+    """
+    if not incidents:
+        return incidents
+    
+    # Group incidents by title prefix
+    prefix_groups = {}
+    empty_prefix_incidents = []  # Incidents with empty/no prefix (no " - " separator)
+    
+    for incident in incidents:
+        title = incident.get('title', '')
+        prefix = extract_title_prefix(title)
+        
+        if prefix:
+            # Has a prefix - group for deduplication
+            if prefix not in prefix_groups:
+                prefix_groups[prefix] = []
+            prefix_groups[prefix].append(incident)
+        else:
+            # Empty prefix - keep as-is (no deduplication needed)
+            empty_prefix_incidents.append(incident)
+    
+    # For each prefix group, keep the one with highest credibility
+    deduplicated = []
+    duplicate_count = 0
+    
+    for prefix, group in prefix_groups.items():
+        if len(group) > 1:
+            # Multiple articles with same prefix - keep the most reputable
+            # Sort by credibility_score (descending), then by relevancy_score (descending)
+            group_sorted = sorted(
+                group,
+                key=lambda x: (
+                    float(x.get('credibility_score', 0.0) or 0.0),
+                    float(x.get('relevancy_score', 0.0) or 0.0)
+                ),
+                reverse=True
+            )
+            
+            # Keep the best one
+            best_incident = group_sorted[0].copy()
+            
+            # Preserve needs_review: false if any duplicate has it set to false
+            for dup in group:
+                if dup.get('needs_review') is False:
+                    best_incident['needs_review'] = False
+                    break
+            
+            deduplicated.append(best_incident)
+            duplicate_count += len(group) - 1
+            
+            # Log the duplicates for reference
+            if len(group) > 1:
+                print(f"    Found {len(group)} duplicates for title prefix: '{prefix[:60]}...'")
+                print(f"      Keeping: {best_incident.get('title', '')[:70]}... (credibility: {best_incident.get('credibility_score', 0.0)})")
+        else:
+            # Only one article with this prefix
+            deduplicated.append(group[0])
+    
+    # Add incidents with empty prefixes (no " - " separator, so no deduplication needed)
+    deduplicated.extend(empty_prefix_incidents)
+    
+    if duplicate_count > 0:
+        print(f"  Removed {duplicate_count} duplicate articles (same title prefix, kept most reputable)")
+    
+    return deduplicated
+
+
 def merge_and_deduplicate(new_incidents: List[Dict], existing_incidents: List[Dict]) -> List[Dict]:
     """
     Merge new and existing incidents, removing duplicates by URL.
     If a URL appears in both:
     - Keep the one with the higher credibility_score
     - If credibility scores are equal, keep the older one (based on date_found)
+    - PRESERVE needs_review: false if URL and publication_date match
     
     Args:
         new_incidents: Newly discovered incidents
@@ -1894,13 +2036,21 @@ def merge_and_deduplicate(new_incidents: List[Dict], existing_incidents: List[Di
     new_count = 0
     updated_count = 0
     kept_existing_count = 0
+    preserved_review_count = 0
     
     for incident in new_incidents:
         url = incident.get('url', '')
         if url:
             if url in merged_dict:
+                existing = merged_dict[url]
+                
+                # Check if URL and publication_date match - preserve needs_review: false
+                existing_pub_date = existing.get('publication_date', '')
+                new_pub_date = incident.get('publication_date', '')
+                pub_date_match = existing_pub_date and new_pub_date and existing_pub_date == new_pub_date
+                
                 # Compare credibility scores
-                existing_cred = merged_dict[url].get('credibility_score', 0.0)
+                existing_cred = existing.get('credibility_score', 0.0)
                 new_cred = incident.get('credibility_score', 0.0)
                 
                 # Convert to float if they're strings or None
@@ -1916,30 +2066,37 @@ def merge_and_deduplicate(new_incidents: List[Dict], existing_incidents: List[Di
                 
                 # Keep the one with higher credibility score
                 if new_cred > existing_cred:
+                    # Update with new incident, but preserve needs_review: false if URL/pub_date match
+                    if pub_date_match and existing.get('needs_review') is False:
+                        incident['needs_review'] = False
+                        preserved_review_count += 1
                     merged_dict[url] = incident
                     updated_count += 1
                 elif new_cred < existing_cred:
-                    # Keep existing (it has higher credibility)
+                    # Keep existing (it has higher credibility) - needs_review already preserved
                     kept_existing_count += 1
                 else:
                     # Credibility scores are equal, keep the older one (earlier date_found)
-                    existing_date = merged_dict[url].get('date_found', '')
+                    existing_date = existing.get('date_found', '')
                     new_date = incident.get('date_found', '')
                     
                     # Compare dates (older = earlier date)
                     if existing_date and new_date:
                         if existing_date < new_date:
-                            # Keep existing (it's older)
+                            # Keep existing (it's older) - needs_review already preserved
                             kept_existing_count += 1
                         elif new_date < existing_date:
-                            # Keep new (it's older)
+                            # Keep new (it's older), but preserve needs_review: false if URL/pub_date match
+                            if pub_date_match and existing.get('needs_review') is False:
+                                incident['needs_review'] = False
+                                preserved_review_count += 1
                             merged_dict[url] = incident
                             updated_count += 1
                         else:
-                            # Dates are equal, keep existing
+                            # Dates are equal, keep existing - needs_review already preserved
                             kept_existing_count += 1
                     else:
-                        # If dates can't be compared, keep existing
+                        # If dates can't be compared, keep existing - needs_review already preserved
                         kept_existing_count += 1
             else:
                 # New incident (not a duplicate)
@@ -1948,8 +2105,12 @@ def merge_and_deduplicate(new_incidents: List[Dict], existing_incidents: List[Di
     
     merged_list = list(merged_dict.values())
     
+    # Deduplicate by title prefix (keep most reputable)
+    print(f"  Deduplicating by title prefix...")
+    merged_list = deduplicate_by_title_prefix(merged_list)
+    
     if existing_incidents:
-        print(f"  Merged: {new_count} new, {updated_count} updated (better credibility), {kept_existing_count} kept existing (better/equal), {len(merged_list)} total unique incidents")
+        print(f"  Merged: {new_count} new, {updated_count} updated (better credibility), {kept_existing_count} kept existing (better/equal), {preserved_review_count} preserved needs_review=false, {len(merged_list)} total unique incidents")
     
     return merged_list
 
