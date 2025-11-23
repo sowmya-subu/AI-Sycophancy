@@ -166,7 +166,9 @@ function normalizeIncident(raw, index) {
     vulnerable_populations:
       raw.vulnerable_populations || raw.vulnerable_population || '',
     status: raw.review_status || raw.status || '',
-    relevancy_score,
+    relevancy_score,  
+    category: raw.category || raw.category_label || '',
+    severity: raw.severity || raw.severity_label || raw.severity_level || '',
   };
 }
 
@@ -308,11 +310,17 @@ function createIncidentCard(incident) {
   card.tabIndex = 0;
 
   const title = incident.title || 'Untitled incident';
-  const source = incident.source || 'Unknown source';
+  const category = incident.category || '';
+  const severity = incident.severity || '';
   const pubDate = parseDate(incident.publication_date);
   const dateText = pubDate
-    ? pubDate.toISOString().slice(0, 10)
-    : 'Date not available';
+    ? pubDate.toLocaleDateString(undefined, {
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+      })
+    : ''; // no "Date not available"
+
   const summary = incident.summary || '';
   const vuln = incident.vulnerable_populations || '';
 
@@ -326,9 +334,9 @@ function createIncidentCard(incident) {
     const minLen = Math.min(titleLc.length, sumLc.length);
     const maxLen = Math.max(titleLc.length, sumLc.length) || 1;
     const lengthRatio = minLen / maxLen;
-    const contains =
-      titleLc.includes(sumLc) || sumLc.includes(titleLc);
+    const contains = titleLc.includes(sumLc) || sumLc.includes(titleLc);
 
+    // hide summary if it's the same / very similar as title
     if (sumLc === titleLc || (lengthRatio > 0.75 && contains)) {
       finalSummary = '';
     }
@@ -336,10 +344,17 @@ function createIncidentCard(incident) {
 
   card.innerHTML = `
     <div class="incident-card-main">
+      ${category ? `<span class="incident-tag">${category}</span>` : ''}
       <h3 class="incident-title">${title}</h3>
       <div class="incident-meta">
-        <span class="incident-source">${source}</span>
-        <span class="incident-date">${dateText}</span>
+        ${dateText ? `<span class="incident-date">${dateText}</span>` : ''}
+        ${
+          severity
+            ? `<span class="incident-severity">
+                 <span class="incident-severity-dot"></span>${severity}
+               </span>`
+            : ''
+        }
       </div>
       ${
         finalSummary
@@ -354,20 +369,15 @@ function createIncidentCard(incident) {
     </div>
     <div class="incident-actions">
       <a href="${incident.url}" target="_blank" rel="noopener noreferrer" class="button-link">
-        View article
+        View details &rarr;
       </a>
       <button type="button" class="button-ghost copy-link">Copy link</button>
     </div>
   `;
 
-  // Entire card click takes you to article
   card.addEventListener('click', (e) => {
-    // Avoid double-activating when clicking buttons
     const target = e.target;
-    if (
-      target.closest('.copy-link') ||
-      target.closest('.button-link')
-    ) {
+    if (target.closest('.copy-link') || target.closest('.button-link')) {
       return;
     }
     if (incident.url && incident.url !== '#') {
@@ -375,7 +385,6 @@ function createIncidentCard(incident) {
     }
   });
 
-  // Keyboard accessibility (enter key triggers click)
   card.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
@@ -383,7 +392,6 @@ function createIncidentCard(incident) {
     }
   });
 
-  // Copy link
   const copyBtn = card.querySelector('.copy-link');
   if (copyBtn) {
     copyBtn.addEventListener('click', (e) => {
@@ -404,6 +412,7 @@ function createIncidentCard(incident) {
 
   return card;
 }
+
 
 function renderIncidents() {
   if (!incidentGrid) return;
