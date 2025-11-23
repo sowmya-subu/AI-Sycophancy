@@ -2242,12 +2242,17 @@ def save_all_outputs(
     # Clean NaN values (convert to None/null for JSON)
     import math
     for record in json_records:
-        for key, value in record.items():
+    for key, value in record.items():
+        try:
             # Convert NaN, NaT, and other pandas null values to None
             if isinstance(value, float) and math.isnan(value):
                 record[key] = None
             elif pd.isna(value):
                 record[key] = None
+        except (ValueError, TypeError):
+            # Skip values that can't be checked with pd.isna() (like arrays)
+            continue
+
     
     # Write JSON with proper array format
     with open(json_file, 'w', encoding='utf-8') as f:
