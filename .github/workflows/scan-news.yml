@@ -1,8 +1,9 @@
 name: Run Scanner
 
 on:
-  schedule:
-    - cron: "0 */24 * * *"   # every 24 hours (change as needed)
+  #disable run on schedule
+  #schedule:
+  #  - cron: "0 */24 * * *"   # every 24 hours (change as needed)
   workflow_dispatch:        # allows manual trigger from Actions tab
 
 permissions:
