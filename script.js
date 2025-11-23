@@ -371,7 +371,7 @@ function createIncidentCard(incident) {
       <a href="${incident.url}" target="_blank" rel="noopener noreferrer" class="button-link">
         View details &rarr;
       </a>
-      <button type="button" class="button-ghost copy-link">Copy link</button>
+      
     </div>
   `;
 
@@ -392,6 +392,8 @@ function createIncidentCard(incident) {
     }
   });
 
+  //disable copy link button for now
+  /*
   const copyBtn = card.querySelector('.copy-link');
   if (copyBtn) {
     copyBtn.addEventListener('click', (e) => {
@@ -409,7 +411,7 @@ function createIncidentCard(incident) {
         });
     });
   }
-
+*/
   return card;
 }
 
