@@ -44,11 +44,7 @@
     "credibility_score": 0.5554,
     "hn_points": null,
     "hn_comments": null,
-    "keywords": [
-      "validation",
-      "mental_health",
-      "medium"
-    ],
+    "keywords": [],
     "behavior_type": "validation",
     "impact_domain": "mental_health",
     "auto_severity": "medium"
@@ -73,11 +69,7 @@
     "credibility_score": 0.5266,
     "hn_points": null,
     "hn_comments": null,
-    "keywords": [
-      "reward_hacking",
-      "medical",
-      "high"
-    ],
+    "keywords": [],
     "behavior_type": "reward_hacking",
     "impact_domain": "medical",
     "auto_severity": "high"
@@ -102,11 +94,7 @@
     "credibility_score": 0.5246,
     "hn_points": null,
     "hn_comments": null,
-    "keywords": [
-      "validation",
-      "general",
-      "low"
-    ],
+    "keywords": [],
     "behavior_type": "validation",
     "impact_domain": "general",
     "auto_severity": "low"
@@ -181,11 +169,7 @@
     "credibility_score": 0.4786,
     "hn_points": null,
     "hn_comments": null,
-    "keywords": [
-      "flattery",
-      "general",
-      "low"
-    ],
+    "keywords": [],
     "behavior_type": "flattery",
     "impact_domain": "general",
     "auto_severity": "low"
@@ -214,6 +198,35 @@
     "behavior_type": null,
     "impact_domain": null,
     "auto_severity": null
+  },
+  {
+    "title": "What Research Says About \"AI Sycophancy\"",
+    "url": "https://news.ycombinator.com/item?id=45625511",
+    "summary": "In two previous research roundups for Tech Policy Press, I looked at studies that considered how AI chatbots affect mental health and may encourage addictive behaviors. Authors: Aaron Fanous, Jacob Goldberg, Ank Agarwal, Joanna Lin, Anson Zhou, Sonnet Xu, Vasiliki Bikia, Roxana Daneshjou, Sanmi Koyejo In the third experiment, the researchers tried to determine whether the effects of sycophancy were due to exposure to one-sided facts about a political issue or because users felt validated by t...",
+    "source": "Hacker News",
+    "publication_date": "2025-10-18",
+    "date_found": "2025-11-23 01:28:36",
+    "vulnerable_populations": "mental_health",
+    "needs_review": false,
+    "severity": "",
+    "status": "discovered",
+    "reviewer_notes": "HN Score: 3, Comments: 0",
+    "relevancy_score": 0.7927,
+    "source_tier": "tier_3",
+    "tier_weight": 0.6,
+    "has_doi": false,
+    "doi": "",
+    "credibility_score": 0.4756,
+    "hn_points": 3.0,
+    "hn_comments": 0.0,
+    "keywords": [
+      "validation",
+      "general",
+      "low"
+    ],
+    "behavior_type": "validation",
+    "impact_domain": "general",
+    "auto_severity": "low"
   },
   {
     "title": "SpellForger: Prompting Custom Spell Properties In-Game using BERT supervised-trained model",
@@ -341,35 +354,6 @@
     "auto_severity": null
   },
   {
-    "title": "What Research Says About \"AI Sycophancy\"",
-    "url": "https://news.ycombinator.com/item?id=45625511",
-    "summary": "In two previous research roundups for Tech Policy Press, I looked at studies that considered how AI chatbots affect mental health and may encourage addictive behaviors. Authors: Aaron Fanous, Jacob Goldberg, Ank Agarwal, Joanna Lin, Anson Zhou, Sonnet Xu, Vasiliki Bikia, Roxana Daneshjou, Sanmi Koyejo This paper examines the “psychological consequences” of engaging with sycophantic AI chatbots, particularly concerning attitudes towards politically polarizing topics like gun rights and abortion.",
-    "source": "Hacker News",
-    "publication_date": "2025-10-18",
-    "date_found": "2025-11-23 01:11:01",
-    "vulnerable_populations": "mental_health, elderly",
-    "needs_review": false,
-    "severity": "",
-    "status": "discovered",
-    "reviewer_notes": "HN Score: 3, Comments: 0",
-    "relevancy_score": 0.7497,
-    "source_tier": "tier_3",
-    "tier_weight": 0.6,
-    "has_doi": false,
-    "doi": "",
-    "credibility_score": 0.4498,
-    "hn_points": 3.0,
-    "hn_comments": 0.0,
-    "keywords": [
-      "validation",
-      "general",
-      "medium"
-    ],
-    "behavior_type": "validation",
-    "impact_domain": "general",
-    "auto_severity": "medium"
-  },
-  {
     "title": "Can MLLMs Read the Room? A Multimodal Benchmark for Assessing Deception in Multi-Party Social Interactions",
     "url": "http://arxiv.org/abs/2511.16221v1",
     "summary": "Despite their advanced reasoning capabilities, state-of-the-art Multimodal Large Language Models (MLLMs) demonstrably lack a core component of human intelligence: the ability to `read the room' and assess deception in complex social interactions. We establish a comprehensive benchmark evaluating 12 state-of-the-art open- and closed-source MLLMs, revealing a significant performance gap: even powerful models like GPT-4o struggle to distinguish truth from falsehood reliably. Our framework yields...",
@@ -393,6 +377,35 @@
     "behavior_type": null,
     "impact_domain": null,
     "auto_severity": null
+  },
+  {
+    "title": "Chatbots can be manipulated through flattery and peer pressure - The Verge",
+    "url": "https://news.google.com/rss/articles/CBMilgFBVV95cUxPbmZQRmFSVWo5T3BzVWNoNmNodGw0eGpnYjVnQ0ZSVWk4X0haY3IzNUJvYnA2Ry1DUXpHWGY2RENSbVJVd0RSQTJucU0xNzlucE5XS2NGZ0IzeWJHVmpLQ29ZREQwdEZYS2xxaE5VWFRwaGJvTTFMaV9aZlFXY2toNjhCRGYzYzk5b0RzemhJcEczYUdWbnc?oc=5",
+    "summary": "Chatbots can be manipulated through flattery and peer pressure The Verge",
+    "source": "Google News: AI flattery issue",
+    "publication_date": null,
+    "date_found": "2025-11-23 01:34:37",
+    "vulnerable_populations": "",
+    "needs_review": true,
+    "severity": "",
+    "status": "discovered",
+    "reviewer_notes": "",
+    "relevancy_score": 0.5379,
+    "source_tier": "tier_2",
+    "tier_weight": 0.8,
+    "has_doi": false,
+    "doi": "",
+    "credibility_score": 0.4303,
+    "hn_points": null,
+    "hn_comments": null,
+    "keywords": [
+      "reward_hacking",
+      "mental_health",
+      "low"
+    ],
+    "behavior_type": "reward_hacking",
+    "impact_domain": "mental_health",
+    "auto_severity": "low"
   },
   {
     "title": "Biased Minds Meet Biased AI: How Class Imbalance Shapes Appropriate Reliance and Interacts with Human Base Rate Neglect",
@@ -489,11 +502,7 @@
     "credibility_score": 0.425,
     "hn_points": null,
     "hn_comments": null,
-    "keywords": [
-      "validation",
-      "general",
-      "low"
-    ],
+    "keywords": [],
     "behavior_type": "validation",
     "impact_domain": "general",
     "auto_severity": "low"
@@ -1093,11 +1102,7 @@
     "credibility_score": 0.3733,
     "hn_points": 3.0,
     "hn_comments": 0.0,
-    "keywords": [
-      "validation",
-      "general",
-      "medium"
-    ],
+    "keywords": [],
     "behavior_type": "validation",
     "impact_domain": "general",
     "auto_severity": "medium"
@@ -1197,11 +1202,7 @@
     "credibility_score": 0.3633,
     "hn_points": null,
     "hn_comments": null,
-    "keywords": [
-      "flattery",
-      "general",
-      "low"
-    ],
+    "keywords": [],
     "behavior_type": "flattery",
     "impact_domain": "general",
     "auto_severity": "low"
@@ -2151,10 +2152,7 @@
     "credibility_score": 0.329,
     "hn_points": null,
     "hn_comments": null,
-    "keywords": [
-      "low",
-      "flattery"
-    ],
+    "keywords": [],
     "behavior_type": "flattery",
     "impact_domain": "",
     "auto_severity": "low"
@@ -2179,11 +2177,7 @@
     "credibility_score": 0.3288,
     "hn_points": null,
     "hn_comments": null,
-    "keywords": [
-      "reward_hacking",
-      "general",
-      "low"
-    ],
+    "keywords": [],
     "behavior_type": "reward_hacking",
     "impact_domain": "general",
     "auto_severity": "low"
@@ -2358,11 +2352,7 @@
     "credibility_score": 0.324,
     "hn_points": null,
     "hn_comments": null,
-    "keywords": [
-      "validation",
-      "general",
-      "critical"
-    ],
+    "keywords": [],
     "behavior_type": "validation",
     "impact_domain": "general",
     "auto_severity": "critical"
@@ -3762,10 +3752,7 @@
     "credibility_score": 0.2936,
     "hn_points": null,
     "hn_comments": null,
-    "keywords": [
-      "general",
-      "low"
-    ],
+    "keywords": [],
     "behavior_type": "",
     "impact_domain": "general",
     "auto_severity": "low"
@@ -3990,11 +3977,7 @@
     "credibility_score": 0.2866,
     "hn_points": 2.0,
     "hn_comments": 0.0,
-    "keywords": [
-      "reward_hacking",
-      "general",
-      "high"
-    ],
+    "keywords": [],
     "behavior_type": "reward_hacking",
     "impact_domain": "general",
     "auto_severity": "high"
@@ -4069,11 +4052,7 @@
     "credibility_score": 0.2853,
     "hn_points": null,
     "hn_comments": null,
-    "keywords": [
-      "flattery",
-      "general",
-      "low"
-    ],
+    "keywords": [],
     "behavior_type": "flattery",
     "impact_domain": "general",
     "auto_severity": "low"
@@ -4623,10 +4602,7 @@
     "credibility_score": 0.2758,
     "hn_points": null,
     "hn_comments": null,
-    "keywords": [
-      "general",
-      "low"
-    ],
+    "keywords": [],
     "behavior_type": "",
     "impact_domain": "general",
     "auto_severity": "low"
@@ -4801,11 +4777,7 @@
     "credibility_score": 0.2731,
     "hn_points": null,
     "hn_comments": null,
-    "keywords": [
-      "validation",
-      "general",
-      "low"
-    ],
+    "keywords": [],
     "behavior_type": "validation",
     "impact_domain": "general",
     "auto_severity": "low"
@@ -5203,31 +5175,6 @@
     "has_doi": false,
     "doi": "",
     "credibility_score": 0.2694,
-    "hn_points": null,
-    "hn_comments": null,
-    "keywords": [],
-    "behavior_type": null,
-    "impact_domain": null,
-    "auto_severity": null
-  },
-  {
-    "title": "Chatbots can be manipulated through flattery and peer pressure - The Verge",
-    "url": "https://news.google.com/rss/articles/CBMilgFBVV95cUxPbmZQRmFSVWo5T3BzVWNoNmNodGw0eGpnYjVnQ0ZSVWk4X0haY3IzNUJvYnA2Ry1DUXpHWGY2RENSbVJVd0RSQTJucU0xNzlucE5XS2NGZ0IzeWJHVmpLQ29ZREQwdEZYS2xxaE5VWFRwaGJvTTFMaV9aZlFXY2toNjhCRGYzYzk5b0RzemhJcEczYUdWbnc?oc=5",
-    "summary": "Chatbots can be manipulated through flattery and peer pressure The Verge",
-    "source": "Google News: AI flattery issue",
-    "publication_date": null,
-    "date_found": "2025-11-22 01:20:32",
-    "vulnerable_populations": "",
-    "needs_review": false,
-    "severity": "",
-    "status": "discovered",
-    "reviewer_notes": "",
-    "relevancy_score": 0.5379,
-    "source_tier": "tier_4",
-    "tier_weight": 0.5,
-    "has_doi": false,
-    "doi": "",
-    "credibility_score": 0.269,
     "hn_points": null,
     "hn_comments": null,
     "keywords": [],
@@ -6555,11 +6502,7 @@
     "credibility_score": 0.249,
     "hn_points": null,
     "hn_comments": null,
-    "keywords": [
-      "flattery",
-      "therapy",
-      "high"
-    ],
+    "keywords": [],
     "behavior_type": "flattery",
     "impact_domain": "therapy",
     "auto_severity": "high"
@@ -10559,11 +10502,7 @@
     "credibility_score": 0.1863,
     "hn_points": null,
     "hn_comments": null,
-    "keywords": [
-      "flattery",
-      "medical",
-      "low"
-    ],
+    "keywords": [],
     "behavior_type": "flattery",
     "impact_domain": "medical",
     "auto_severity": "low"
@@ -12613,10 +12552,7 @@
     "credibility_score": 0.157,
     "hn_points": null,
     "hn_comments": null,
-    "keywords": [
-      "general",
-      "low"
-    ],
+    "keywords": [],
     "behavior_type": "",
     "impact_domain": "general",
     "auto_severity": "low"
@@ -12791,10 +12727,7 @@
     "credibility_score": 0.1532,
     "hn_points": null,
     "hn_comments": null,
-    "keywords": [
-      "mental_health",
-      "critical"
-    ],
+    "keywords": [],
     "behavior_type": "",
     "impact_domain": "mental_health",
     "auto_severity": "critical"
@@ -12844,10 +12777,7 @@
     "credibility_score": 0.1519,
     "hn_points": null,
     "hn_comments": null,
-    "keywords": [
-      "flattery",
-      "general"
-    ],
+    "keywords": [],
     "behavior_type": "flattery",
     "impact_domain": "general",
     "auto_severity": ""
