@@ -325,7 +325,7 @@ function createIncidentCard(incident) {
   const vuln = incident.vulnerable_populations || '';
 
   const trimmedSummary = summary.trim();
-  let finalSummary = trimmedSummary;
+  let finalSummary = '';
 
   const titleLc = safeLower(title).trim();
   const sumLc = safeLower(trimmedSummary).trim();
