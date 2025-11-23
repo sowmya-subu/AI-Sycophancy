@@ -363,7 +363,7 @@ function createIncidentCard(incident) {
       }
       ${
         vuln
-          ? `<p class="incident-vulnerable"><strong>Vulnerable populations:</strong> ${vuln}</p>`
+          ? `<p class="incident-vulnerable">Keywords: ${vuln}</p>`
           : ''
       }
     </div>
